@@ -34,8 +34,6 @@ create_bd_port -dir O hdmi_d2
 
 create_bd_port -dir I ext_clk_50m
 
-create_bd_port -dir O clk_25m
-
 # instance: sys_ps7
 
 ad_ip_instance processing_system7 sys_ps7
@@ -67,7 +65,7 @@ ad_ip_parameter sys_ps7 CONFIG.PCW_ENET1_PERIPHERAL_ENABLE 0
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK0_PORT 1
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_RST0_PORT 1
 
-ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK1_PORT 1
+ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK1_PORT 0
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_RST1_PORT 0
 
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK2_PORT 0
@@ -170,7 +168,7 @@ ad_connect gpio_t sys_ps7/GPIO_T
 ad_connect ttc0_wave0_out sys_ps7/TTC0_WAVE0_OUT
 
 ad_connect sys_cpu_clk sys_ps7/FCLK_CLK0
-ad_connect clk_25m sys_ps7/FCLK_CLK1
+
 
 ad_ip_instance xlconcat sys_concat_intc
 ad_ip_parameter sys_concat_intc CONFIG.NUM_PORTS 16

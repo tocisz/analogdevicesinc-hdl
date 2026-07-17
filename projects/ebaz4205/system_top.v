@@ -102,8 +102,7 @@ module system_top (
   output       hdmi_d1_p,  hdmi_d1_n,
   output       hdmi_d2_p,  hdmi_d2_n,
 
-  input        ext_clk_50m,
-  output       clk_25m
+  input        ext_clk_50m
 );
   // internal signals
 
@@ -120,8 +119,6 @@ module system_top (
 
   wire ext_clk_50m_i;
   wire ext_clk_50m_o;
-
-  wire clk_25m_i;
 
   // instantiations
 
@@ -193,11 +190,6 @@ module system_top (
     .O(ext_clk_50m_o)
   );
 
-  OBUF ext_clk_25m_obuf (
-    .I(clk_25m_i),
-    .O(clk_25m)
-  );
-
   // system wrapper
 
   system_wrapper i_system_wrapper (
@@ -255,7 +247,6 @@ module system_top (
     .hdmi_d1(hdmi_d1),
     .hdmi_d2(hdmi_d2),
 
-    .ext_clk_50m(ext_clk_50m_o),
-    .clk_25m(clk_25m_i)
+    .ext_clk_50m(ext_clk_50m_o)
   );
 endmodule
