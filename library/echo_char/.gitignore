@@ -1,0 +1,6 @@
+# Simulation artifacts (xsim)
+xsim.dir/
+*.pb
+*.wdb
+*.tmp
+work.*

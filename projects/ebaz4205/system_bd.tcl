@@ -274,3 +274,20 @@ create_bd_addr_seg -range 0x20000000 -offset 0x00000000 \
 ### interrupts
 
 ad_cpu_interrupt ps-12 mb-12 hdmi_sink_dma/irq
+
+### PL TTY character device
+
+ad_ip_instance axi_uartlite axi_uartlite_0
+ad_ip_parameter axi_uartlite_0 CONFIG.C_BAUDRATE 115200
+ad_ip_parameter axi_uartlite_0 CONFIG.C_DATA_BITS 8
+ad_ip_parameter axi_uartlite_0 CONFIG.C_USE_PARITY 0
+ad_ip_parameter axi_uartlite_0 CONFIG.C_ODD_PARITY 0
+
+ad_cpu_interconnect 0x7C430000 axi_uartlite_0
+ad_cpu_interrupt ps-13 mb-13 axi_uartlite_0/interrupt
+
+ad_ip_instance echo_char echo_char_0
+ad_connect sys_cpu_clk echo_char_0/clk
+ad_connect sys_cpu_reset echo_char_0/reset
+ad_connect axi_uartlite_0/tx echo_char_0/uart_tx_i
+ad_connect axi_uartlite_0/rx echo_char_0/uart_rx_o
