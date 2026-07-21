@@ -1,0 +1,21 @@
+# Vivado project artifacts
+*.xpr
+*.log
+*.jou
+component.xml
+.lock
+
+# IP GUI definition (generated)
+xgui/
+
+# Vivado cache and hardware files
+.cache/
+.hw/
+
+# Simulation artifacts (xsim)
+xsim.dir/
+*.pb
+*.wdb
+*.vcd
+*.tmp
+work.*

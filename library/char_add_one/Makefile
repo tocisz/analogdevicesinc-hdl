@@ -1,20 +1,16 @@
-LIBRARY_NAME := echo_char
+LIBRARY_NAME := char_add_one
 
-GENERIC_DEPS += echo_char.v
+GENERIC_DEPS += char_add_one.v
 
-XILINX_DEPS += echo_char_ip.tcl
-XILINX_LIB_DEPS += uart_phy
-XILINX_LIB_DEPS += char_add_one
+XILINX_DEPS += char_add_one_ip.tcl
 
 include ../scripts/library.mk
 
 # ------------------------------------------------------------------
 # Simulation targets (Vivado xsim)
 # ------------------------------------------------------------------
-SIM_TOP    := tb_echo_char
-SIM_SRC    := echo_char.v tb_echo_char.v \
-              ../uart_phy/uart_phy.v \
-              ../char_add_one/char_add_one.v
+SIM_TOP    := tb_char_add_one
+SIM_SRC    := char_add_one.v tb_char_add_one.v
 SIM_LOG    := $(SIM_TOP)_sim.log
 
 .PHONY: sim

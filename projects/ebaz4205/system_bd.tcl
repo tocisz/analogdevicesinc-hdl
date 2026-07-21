@@ -286,8 +286,34 @@ ad_ip_parameter axi_uartlite_0 CONFIG.C_ODD_PARITY 0
 ad_cpu_interconnect 0x7C430000 axi_uartlite_0
 ad_cpu_interrupt ps-13 mb-13 axi_uartlite_0/interrupt
 
-ad_ip_instance echo_char echo_char_0
-ad_connect sys_cpu_clk echo_char_0/clk
-ad_connect sys_cpu_reset echo_char_0/reset
-ad_connect axi_uartlite_0/tx echo_char_0/uart_tx_i
-ad_connect axi_uartlite_0/rx echo_char_0/uart_rx_o
+# ── UART PHY ──
+ad_ip_instance uart_phy uart_phy_0
+ad_connect sys_cpu_clk uart_phy_0/clk
+ad_connect sys_cpu_reset uart_phy_0/reset
+ad_connect axi_uartlite_0/tx uart_phy_0/uart_rx_i
+ad_connect axi_uartlite_0/rx uart_phy_0/uart_tx_o
+
+# ── bf1_soc ──
+ad_ip_instance bf1_soc bf1_soc_0
+ad_connect sys_cpu_clk bf1_soc_0/clk_i
+ad_connect sys_cpu_resetn bf1_soc_0/resetq
+ad_connect uart_phy_0/rx_data   bf1_soc_0/io_rx_data
+ad_connect uart_phy_0/rx_valid  bf1_soc_0/io_rx_valid
+ad_connect bf1_soc_0/io_rx_ready  uart_phy_0/rx_accept_i
+ad_connect bf1_soc_0/io_tx_data   uart_phy_0/tx_data
+ad_connect bf1_soc_0/io_tx_valid  uart_phy_0/tx_start
+ad_connect uart_phy_0/tx_busy     bf1_soc_0/io_tx_ready
+
+# ── bf1 control via axi_gpreg ──
+ad_ip_instance axi_gpreg bf1_ctrl
+ad_ip_parameter bf1_ctrl CONFIG.NUM_OF_IO 3
+ad_ip_parameter bf1_ctrl CONFIG.NUM_OF_CLK_MONS 0
+ad_ip_parameter bf1_ctrl CONFIG.ID 48912
+ad_cpu_interconnect 0x7C440000 bf1_ctrl
+
+ad_connect bf1_ctrl/up_gp_out_0  bf1_soc_0/ctrl_gp0_out
+ad_connect bf1_ctrl/up_gp_out_1  bf1_soc_0/ctrl_gp1_out
+ad_connect bf1_ctrl/up_gp_out_2  bf1_soc_0/ctrl_gp2_out
+ad_connect bf1_soc_0/ctrl_gp0_in  bf1_ctrl/up_gp_in_0
+ad_connect bf1_soc_0/ctrl_gp1_in  bf1_ctrl/up_gp_in_1
+ad_connect bf1_soc_0/ctrl_gp2_in  bf1_ctrl/up_gp_in_2

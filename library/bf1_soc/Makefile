@@ -1,20 +1,19 @@
-LIBRARY_NAME := echo_char
+LIBRARY_NAME := bf1_soc
 
-GENERIC_DEPS += echo_char.v
+GENERIC_DEPS += common.h
+GENERIC_DEPS += stack.v
+GENERIC_DEPS += bf1.v
+GENERIC_DEPS += bf1_soc.v
 
-XILINX_DEPS += echo_char_ip.tcl
-XILINX_LIB_DEPS += uart_phy
-XILINX_LIB_DEPS += char_add_one
+XILINX_DEPS += bf1_soc_ip.tcl
 
 include ../scripts/library.mk
 
 # ------------------------------------------------------------------
 # Simulation targets (Vivado xsim)
 # ------------------------------------------------------------------
-SIM_TOP    := tb_echo_char
-SIM_SRC    := echo_char.v tb_echo_char.v \
-              ../uart_phy/uart_phy.v \
-              ../char_add_one/char_add_one.v
+SIM_TOP    := tb_bf1_soc
+SIM_SRC    := bf1_soc.v bf1.v stack.v tb_bf1_soc.sv
 SIM_LOG    := $(SIM_TOP)_sim.log
 
 .PHONY: sim
@@ -23,7 +22,8 @@ sim: $(SIM_LOG)
 	@tail -20 $(SIM_LOG)
 
 $(SIM_LOG): $(SIM_SRC)
-	xvlog --sv $(SIM_SRC)
+	xvlog --sv bf1_soc.v bf1.v stack.v
+	xvlog --sv tb_bf1_soc.sv
 	xelab $(SIM_TOP) -log xelab.log
 	xsim $(SIM_TOP) -R | tee $(SIM_LOG)
 
@@ -32,7 +32,8 @@ wave: $(SIM_TOP)_wave.wdb
 	xsim --gui $(SIM_TOP)_wave.wdb &
 
 $(SIM_TOP)_wave.wdb: $(SIM_SRC)
-	xvlog --sv $(SIM_SRC)
+	xvlog --sv bf1_soc.v bf1.v stack.v
+	xvlog --sv tb_bf1_soc.sv
 	xelab $(SIM_TOP)
 	xsim $(SIM_TOP) --tclbatch $(SIM_TOP)_wave.tcl
 
