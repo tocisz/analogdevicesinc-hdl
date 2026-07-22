@@ -27,6 +27,24 @@ $(SIM_LOG): $(SIM_SRC)
 	xelab $(SIM_TOP) -log xelab.log
 	xsim $(SIM_TOP) -R | tee $(SIM_LOG)
 
+# ------------------------------------------------------------------
+# Integration simulation: bf1_soc + uart_phy over a real serial link
+# (exercises the full RX/TX handshake the unit TB cannot see)
+# ------------------------------------------------------------------
+SIM_UART_TOP := tb_bf1_soc_uart
+SIM_UART_LOG := $(SIM_UART_TOP)_sim.log
+
+.PHONY: sim-uart
+sim-uart: $(SIM_UART_LOG)
+	@echo "=== Simulation log: $(SIM_UART_LOG) ==="
+	@tail -30 $(SIM_UART_LOG)
+
+$(SIM_UART_LOG): bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.v tb_bf1_soc_uart.sv
+	xvlog --sv bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.v
+	xvlog --sv tb_bf1_soc_uart.sv
+	xelab $(SIM_UART_TOP) -log xelab_uart.log
+	xsim $(SIM_UART_TOP) -R | tee $(SIM_UART_LOG)
+
 .PHONY: wave
 wave: $(SIM_TOP)_wave.wdb
 	xsim --gui $(SIM_TOP)_wave.wdb &
@@ -39,4 +57,4 @@ $(SIM_TOP)_wave.wdb: $(SIM_SRC)
 
 .PHONY: sim-clean
 sim-clean:
-	rm -rf xsim.dir $(SIM_LOG) *.wdb *.pb *.jou *.log webtalk* xelab* .Xil
+	rm -rf xsim.dir $(SIM_LOG) $(SIM_UART_LOG) *.wdb *.pb *.jou *.log webtalk* xelab* .Xil

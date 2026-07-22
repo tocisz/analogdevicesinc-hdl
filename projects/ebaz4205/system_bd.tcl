@@ -302,7 +302,7 @@ ad_connect uart_phy_0/rx_valid  bf1_soc_0/io_rx_valid
 ad_connect bf1_soc_0/io_rx_ready  uart_phy_0/rx_accept_i
 ad_connect bf1_soc_0/io_tx_data   uart_phy_0/tx_data
 ad_connect bf1_soc_0/io_tx_valid  uart_phy_0/tx_start
-ad_connect uart_phy_0/tx_busy     bf1_soc_0/io_tx_ready
+ad_connect uart_phy_0/tx_ready    bf1_soc_0/io_tx_ready
 
 # ── bf1 control via axi_gpreg ──
 ad_ip_instance axi_gpreg bf1_ctrl

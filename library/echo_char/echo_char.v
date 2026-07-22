@@ -78,7 +78,8 @@ module echo_char #(
     .rx_accept_i(rx_accept),
     .tx_data(tx_data),
     .tx_start(tx_start),
-    .tx_busy(tx_busy)
+    .tx_busy(tx_busy),
+    .tx_ready()
   );
 
   // ------------------------------------------------------------------

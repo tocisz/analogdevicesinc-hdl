@@ -60,7 +60,8 @@ module uart_phy #(
   // TX parallel input
   input  wire [7:0] tx_data,
   input  wire       tx_start,
-  output wire       tx_busy
+  output wire       tx_busy,
+  output wire       tx_ready    // = !tx_busy (idle, can accept a byte)
 );
 
   // ------------------------------------------------------------------
@@ -116,8 +117,13 @@ module uart_phy #(
   // ------------------------------------------------------------------
   reg uart_in_sync0, uart_in_sync1;
   always @(posedge clk) begin
-    uart_in_sync0 <= uart_rx_i;
-    uart_in_sync1 <= uart_in_sync0;
+    if (reset) begin
+      uart_in_sync0 <= 1'b1;  // UART idle state = high
+      uart_in_sync1 <= 1'b1;
+    end else begin
+      uart_in_sync0 <= uart_rx_i;
+      uart_in_sync1 <= uart_in_sync0;
+    end
   end
 
   // ------------------------------------------------------------------
@@ -345,6 +351,7 @@ module uart_phy #(
 
   assign uart_tx_o = uart_tx_o_int;
   assign tx_busy   = tx_busy_int;
+  assign tx_ready  = !tx_busy_int;
 
 endmodule
 `default_nettype wire

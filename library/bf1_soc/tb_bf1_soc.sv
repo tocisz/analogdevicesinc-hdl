@@ -112,14 +112,16 @@ module tb_bf1_soc;
 
   task uart_send(input [7:0] data_byte);
     begin
-      // Present data for one cycle, then wait for CPU to accept
+      // Standard valid/ready source: assert valid, then wait for the
+      // posedge at which io_rx_ready is high — that is the capture edge
+      // (io_rx_ready is high only on the cycle the CPU actually consumes
+      // the byte).  Then deassert valid.
       @(posedge clk_i);
       io_rx_data  <= data_byte;
       io_rx_valid <= 1;
       @(posedge clk_i);
-      // Wait for CPU to accept (io_rx_ready = io_rd && cpu_active)
       while (!io_rx_ready) @(posedge clk_i);
-      // Clear valid — CPU captured on the posedge where io_rx_ready was 1
+      // Byte captured at the last posedge — clear valid
       io_rx_valid <= 0;
       @(posedge clk_i);  // Let the clear propagate before returning
     end
@@ -263,12 +265,7 @@ module tb_bf1_soc;
 
     // Send 'H', wait for echo, send 'i', wait for echo, send NUL
     #100;
-    io_rx_data  <= 8'h48;  // 'H'
-    io_rx_valid <= 1;
-    @(posedge clk_i);
-    while (!io_rx_ready) @(posedge clk_i);
-    io_rx_valid <= 0;
-    @(posedge clk_i);
+    uart_send(8'h48);  // 'H'
 
     uart_recv_q(rbyte);
     if (rbyte == 8'h48) begin
@@ -280,12 +277,7 @@ module tb_bf1_soc;
     end
 
     #50;
-    io_rx_data  <= 8'h69;  // 'i'
-    io_rx_valid <= 1;
-    @(posedge clk_i);
-    while (!io_rx_ready) @(posedge clk_i);
-    io_rx_valid <= 0;
-    @(posedge clk_i);
+    uart_send(8'h69);  // 'i'
 
     uart_recv_q(rbyte);
     if (rbyte == 8'h69) begin
@@ -298,12 +290,7 @@ module tb_bf1_soc;
 
     // Send NUL to terminate loop
     #50;
-    io_rx_data  <= 8'h00;
-    io_rx_valid <= 1;
-    @(posedge clk_i);
-    while (!io_rx_ready) @(posedge clk_i);
-    io_rx_valid <= 0;
-    @(posedge clk_i);
+    uart_send(8'h00);
     gp0_cmd(4'h1);  // HALT
     #100;
 

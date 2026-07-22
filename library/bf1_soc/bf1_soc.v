@@ -84,12 +84,12 @@ module bf1_soc (
   // UART data is available, cpu_active must drop immediately (same cycle)
   // so the PC does NOT advance past the input instruction.
   //
-  // io_stall_tx is registered because '.' fires for only one cycle;
-  // a combinational stall on io_wr would hold the CPU at '.' forever.
+  // io_stall_tx is COMBINATIONAL for the same reason: while TX is busy
+  // the CPU must hold at '.' so the io_tx_valid strobe never fires into
+  // a busy uart_phy (which would silently drop the byte).
   // ==================================================================
   reg halted;
   reg step_pending;
-  reg io_stall_tx;
 
   // Edge detection on control bits
   reg ctrl_halt_d, ctrl_halt;
@@ -142,25 +142,26 @@ module bf1_soc (
   wire io_stall_rx;
   assign io_stall_rx = io_rd && !io_rx_valid;
 
-  // IO stall (output — '.') — registered one-shot.
-  always @(posedge clk_i or negedge resetq) begin
-    if (!resetq) begin
-      io_stall_tx <= 0;
-    end else if (io_wr && cpu_active && !io_tx_ready) begin
-      io_stall_tx <= 1;
-    end else if (io_stall_tx && io_tx_ready) begin
-      io_stall_tx <= 0;
-    end
-  end
+  // IO stall (output — '.') — COMBINATIONAL: while TX is busy, the CPU
+  // holds at '.' (PC frozen, no strobe).  When io_tx_ready goes high the
+  // CPU executes '.' at the next cpu_active edge and the single-cycle
+  // io_tx_valid strobe fires into an IDLE uart_phy.  This guarantees the
+  // strobe can never fire while uart_phy is busy (which would drop the
+  // byte), so back-to-back '.' instructions transmit correctly.
+  wire io_stall_tx;
+  assign io_stall_tx = io_wr && !io_tx_ready;
 
   wire cpu_active_raw = !halted && !io_stall_rx && !io_stall_tx;
 
-  // Prefetch: hold cpu_active=0 for 1 cycle after reset so the BRAM
-  // can pre-fetch code_ram[0] before the CPU starts executing.
+  // Prefetch: hold cpu_active=0 for 1 cycle after reset or after a
+  // PS-initiated reset so the BRAM can pre-fetch code_ram[0] before
+  // the CPU starts executing.
   reg prefetch;
 
   always @(posedge clk_i or negedge resetq) begin
     if (!resetq)
+      prefetch <= 1'b1;
+    else if (ctrl_reset)
       prefetch <= 1'b1;
     else if (cpu_active_raw && prefetch)
       prefetch <= 1'b0;
@@ -308,21 +309,40 @@ module bf1_soc (
   reg [7:0] io_tx_data_int;
   reg       io_tx_valid_int;
 
+  // TX strobe: single-cycle pulse on io_wr (like echo_char's tx_start).
+  // uart_phy.tx_start expects a single-cycle strobe, not a level that
+  // persists until acknowledged.  If io_tx_valid stayed high until
+  // io_tx_ready (= !tx_busy), the TX FSM would re-enter TX_START on
+  // the cycle after transmission completes, generating a spurious byte.
   always @(posedge clk_i or negedge resetq) begin
     if (!resetq) begin
       io_tx_data_int  <= 0;
       io_tx_valid_int <= 0;
-    end else if (io_wr && cpu_active) begin
-      io_tx_data_int  <= io_dout;
-      io_tx_valid_int <= 1;
-    end else if (io_tx_ready) begin
-      io_tx_valid_int <= 0;
+    end else begin
+      io_tx_valid_int <= 1'b0;  // default: single-cycle strobe
+      if (io_wr && cpu_active) begin
+        io_tx_data_int  <= io_dout;
+        io_tx_valid_int <= 1;
+      end
     end
   end
 
   assign io_tx_data  = io_tx_data_int;
   assign io_tx_valid = io_tx_valid_int;
-  assign io_rx_ready = io_rd && cpu_active;  // only accept when actually running
+  // RX accept handshake for uart_phy's holding-register FIFO.
+  //
+  // uart_phy only PRESENTS a byte (rx_valid<=1) while rx_accept_i=1, and
+  // CONSUMES the presented byte at ANY posedge where rx_valid && rx_accept_i.
+  // The CPU, however, only captures io_din at posedges where cpu_active=1
+  // (every other cycle due to bf1_ce).  rx_accept_i must therefore be:
+  //   - high while the CPU waits at ',' with no data yet (else deadlock:
+  //     presentation waits for accept, accept would wait for cpu_active,
+  //     and cpu_active waits for rx_valid),
+  //   - low on bf1_ce=0 cycles once data IS presented (else uart_phy
+  //     consumes the byte on a cycle the CPU does not capture it —
+  //     byte lost and CPU stuck at ',' forever),
+  //   - low while halted (byte must be held, not discarded).
+  assign io_rx_ready = io_rd && !halted && (!io_rx_valid || cpu_active);
 
 
   // ==================================================================
@@ -445,6 +465,7 @@ module bf1_soc (
     .clk(clk_i),
     .resetq(resetq),
     .cpu_active(cpu_active),
+    .ctrl_reset_i(ctrl_reset),
     .mem_addr(mem_addr),
     .mem_wr(mem_wr),
     .mem_dout(mem_dout),

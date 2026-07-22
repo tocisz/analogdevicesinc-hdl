@@ -4,6 +4,7 @@ module bf1 (
    input wire clk,
    input wire resetq,
    input wire cpu_active,       // clock enable: 0 = stall
+   input wire ctrl_reset_i,     // synchronous reset from PS register (1-cycle pulse)
 
    output wire [`DADDR_WIDTH-1:0] mem_addr,
    output reg  mem_wr,
@@ -132,6 +133,8 @@ module bf1 (
    always @(negedge resetq or posedge clk)
    begin
      if (!resetq) begin
+       { pc, rsp, maddr, lj, lj_offset } <= 0;
+     end else if (ctrl_reset_i) begin
        { pc, rsp, maddr, lj, lj_offset } <= 0;
      end else if (cpu_active) begin
        { pc, rsp, maddr, lj, lj_offset }
