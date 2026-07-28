@@ -8,7 +8,7 @@ adi_ip_files bf1_soc [list \
   "stack.v" \
   "bf1.v" \
   "bf1_soc.v" \
-  "bf1_soc_constr.xdc" ]
+]
 
 adi_ip_properties_lite bf1_soc
 

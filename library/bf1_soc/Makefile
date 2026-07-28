@@ -94,6 +94,17 @@ verilator-run: $(SIM_VER_BIN)
 verilator-clean:
 	rm -rf obj_dir
 
+# ------------------------------------------------------------------
+# Synthesis target (standalone, timing + propagation delay reports)
+# ------------------------------------------------------------------
+.PHONY: synth
+synth: bf1_soc_synth.log
+	@echo "=== Synthesis + timing report: bf1_soc_synth.log ==="
+	@grep -A 100 "Timing report" bf1_soc_synth.log | head -120
+
+bf1_soc_synth.log: bf1_soc_synth.tcl common.h stack.v bf1.v bf1_soc.v
+	vivado -mode batch -source bf1_soc_synth.tcl 2>&1 | tee bf1_soc_synth.log
+
 .PHONY: sim-clean
 sim-clean:
 	rm -rf xsim.dir obj_dir $(SIM_LOG) $(SIM_UART_LOG) *.wdb *.pb *.jou *.log webtalk* xelab* .Xil

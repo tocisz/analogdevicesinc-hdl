@@ -325,6 +325,48 @@ module tb_bf1_soc;
     end
 
     // ==============================================================
+    // Test 6: Long jump forward (skip past a "." instruction)
+    // ==============================================================
+    // New encoding: offset = {jump_insn[7:0], prefix_insn[4:0]}
+    //   offset = +3  →  prefix_low = 3 (0b00011), jump_byte = 0 (0x00)
+    //   prefix byte = 0b101_00011 = 0xA3
+    //   jump byte   = 0x00
+    //
+    // Program:
+    //   0: +  (0x41)       cell = 1
+    //   1: prefix (0xA3)   long jump +3  → target = 4
+    //   2: jump    (0x00)  (offset high bits = 0)
+    //   3: .  (0xE0)       [SKIPPED: would output 1]
+    //   4: +  (0x41)       cell = 2
+    //   5: .  (0xE0)       output 2
+    //
+    // Expected: single output 0x02
+    // If long jump fails (falls through): outputs 0x01, 0x02
+    // ==============================================================
+    $display("--- Test 6: Long jump forward ---");
+    gp2_write(0, 8'h41);  // +
+    gp2_write(1, 8'hA3);  // prefix (offset_low=3)
+    gp2_write(2, 8'h00);  // jump_byte (offset_high=0)
+    gp2_write(3, 8'hE0);  // .  (should be skipped)
+    gp2_write(4, 8'h41);  // +
+    gp2_write(5, 8'hE0);  // .
+    gp0_cmd(4'h8);        // RUN
+
+    uart_recv_q(rbyte);
+    if (rbyte == 8'h02) begin
+      $display("  PASS: output = 0x02 (long jump skipped past '.' correctly)");
+      pass_count = pass_count + 1;
+    end else if (rbyte == 8'h01) begin
+      $display("  FAIL: output = 0x01 (long jump did NOT skip past '.')");
+      fail_count = fail_count + 1;
+    end else begin
+      $display("  FAIL: unexpected output = 0x%0h", rbyte);
+      fail_count = fail_count + 1;
+    end
+    gp0_cmd(4'h1);  // HALT
+    #100;
+
+    // ==============================================================
     // Summary
     // ==============================================================
     $display("");
