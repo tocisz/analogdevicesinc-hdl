@@ -12,7 +12,7 @@
 ###############################################################################
 
 # Part used by the ebaz4205 target (XC7K70T)
-set PART xc7k70tfbv676-1
+set PART xc7z010clg400-1
 set TOP bf1_soc
 set SRCS [list \
   [file normalize "common.h"] \
@@ -29,6 +29,9 @@ create_project -force $TOP $proj_dir -part $PART
 # Add sources
 add_files -norecurse -scan_for_includes -fileset sources_1 $SRCS
 set_property top $TOP [get_filesets sources_1]
+
+# Add the 100 MHz clock constraint (matches full project's fpga_0_clk)
+add_files -norecurse -fileset constrs_1 "[file normalize ./bf1_soc_synth.xdc]"
 
 puts "=== Launching synthesis ==="
 synth_design -top $TOP -part $PART -flatten_hierarchy rebuilt

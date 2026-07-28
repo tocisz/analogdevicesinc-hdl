@@ -142,15 +142,19 @@ module bf1 (
        end
      end
 
-     if (lj)
-       pcN = pj_result; // long jump (unconditional, no stack push)
+     if (lj) begin
+       if (mem_din == 0)
+         pcN = pj_result; // skip the loop
+       else begin
+         rspN = rsp + 1'b1; // enter the loop, push return address
+         rstkW = 1;
+       end
+     end
    end
 
    always @(negedge resetq or posedge clk)
    begin
-     if (!resetq) begin
-       { pc, rsp, maddr, lj, lj_offset, pj_carry5, pj_pc_high } <= 0;
-     end else if (ctrl_reset_i) begin
+     if (!resetq || ctrl_reset_i) begin
        { pc, rsp, maddr, lj, lj_offset, pj_carry5, pj_pc_high } <= 0;
      end else if (cpu_active) begin
        { pc, rsp, maddr, lj, lj_offset }
