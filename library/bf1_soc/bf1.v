@@ -58,7 +58,7 @@ module bf1 (
    // Pipeline result for long jump (step 2: mid addition with saved carry + pc_high)
    wire [7:0] pj_mid_sum;
    wire [12:0] pj_result;
-   assign pj_mid_sum = pj_pc_high + insn + pj_carry5;
+   assign pj_mid_sum = pj_pc_high + insn + {7'b0, pj_carry5};
    assign pj_result = {pj_mid_sum[7:0], lj_offset[4:0]};
 
    // 6-bit low sum with carry (shared between pipeline step 1 and lj_offset update)
@@ -116,7 +116,7 @@ module bf1 (
    assign rstkD = pcN; // if we put anything on stack, it's pcN
    // Low 5 bits of pc[4:0] + prefix_insn[4:0] (step 1 of pipeline)
    // lj_offset serves as pj_low (pj_low = lj_offset)
-   assign lj_offsetN = (pc[4:0] + insn[4:0]);
+   assign lj_offsetN = pj_low_sum[4:0];
    always @ (do_jump_or_ret, do_jump, pc, mem_din, rsp, rst0, alu_c, lj, pj_result)
    begin
      // default: go to the next instruction
