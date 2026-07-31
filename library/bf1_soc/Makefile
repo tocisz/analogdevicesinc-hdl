@@ -68,7 +68,7 @@ $(SIM_TOP)_wave.wdb: $(SIM_SRC)
 #   obj_dir/Vbf1 prog.bin in.txt     # feed ',' from a file (ghost.b, xmastree.b)
 #   obj_dir/Vbf1 prog.bin +maxsteps=N    # cap for non-terminating programs
 #   obj_dir/Vbf1 prog.bin +trace         # dump bf1.vcd
-# All-in-one:   make sim-verilator PROG=prog.bin INPUT=input.txt
+# All-in-one:   make sim-verilator SIM_VER_PROG=prog.bin SIM_VER_INPUT=input.txt
 # ------------------------------------------------------------------
 SIM_VER_TOP   := Vbf1
 SIM_VER_SRC   := bf1.v stack.v
@@ -76,7 +76,7 @@ SIM_VER_CPP   := bf1_verilator.cpp
 SIM_VER_BIN   := obj_dir/$(SIM_VER_TOP)
 SIM_VER_PROG  ?= out.bin
 SIM_VER_INPUT ?=
-SIM_VER_ARGS  ?= +verbose
+SIM_VER_ARGS  ?=  # opt-in: +verbose, +trace, +maxsteps=N
 
 .PHONY: sim-verilator verilator-build verilator-run verilator-clean
 
