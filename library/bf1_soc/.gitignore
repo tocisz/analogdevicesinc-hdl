@@ -19,3 +19,6 @@ xsim.dir/
 *.vcd
 *.tmp
 work.*
+
+# Verilator model
+obj_dir/
