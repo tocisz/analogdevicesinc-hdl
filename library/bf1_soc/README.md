@@ -1,37 +1,24 @@
-# BF1 SoC Library — Brainfuck CPU and Pipeline Experiments
+# BF1 SoC Library — Original Single-Cycle Brainfuck CPU
 
-This directory contains the original **BF1 single-cycle Brainfuck CPU** and a series of pipeline experiments (**BF2** variants) for timing analysis and architectural exploration on the Xilinx Artix-7 / Zynq-7000 (xc7z010clg400-1).
+This directory contains the **BF1 single-cycle Brainfuck CPU** — the golden reference implementation verified on hardware.
 
 ---
 
 ## File Overview
 
-### Core CPU Implementations
+### Core CPU Implementation
 
 | File | Description |
 |------|-------------|
 | **`bf1.v`** | **Golden reference** — original single-cycle BF1 CPU (Verilog). Verified on hardware; all pipeline variants must match its byte-level output. |
-| **`bf1_soc.v`** | Reference SoC wrapper instantiating `bf1` + UART + external memory interface (kept for the xsim testbenches `tb_bf1_soc*`). |
-| **`bf2_soc.v`** | **Production SoC wrapper** — the `bf1_soc` IP now packages this file. Drop-in replacement for `bf1_soc.v` (identical external interface) wrapping `bf2_phase_full`: generates the alternating `en_s12`/`en_s34` clock enables, derives the simplified synchronous active-high reset from `resetq` + PS `ctrl_reset`, adds IO-stall (RX/TX) via the core's `io_rd_pending`/`io_wr_pending` outputs, and presents the async-read DMEM model (registered BRAM + last-write bypass). |
-| **`bf2_phase.sv`** | **Functionally verified 2-phase pipeline** (FD \| EX/WB) — drop-in replacement for BF1. Passes Verilator byte-comparison against `bf1.v` on `hello.bin`, `mandelbrot.bin`, `squares.bin`, `xmastree.bin`, `ghost.bin`. |
-| **`bf2_pipeline.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models. Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
-| **`bf2_2stage.sv`** | **2-stage pipeline** (FD \| EX/WB) with BRAM models. Alternative merged-boundary design. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
-
-### Combinational / Timing Analysis Modules
-
-| File | Description |
-|------|-------------|
-| **`bf2_comb.sv`** | Pure combinational cores for each stage (`bf2_s1_fetch_comb`, `bf2_s2_decode_comb`, `bf2_s3_execute_comb`, `bf2_s4_writeback_comb`, `bf2_alu_comb`, `bf2_longjump_pipeline_comb`). Used for pin-to-pin delay measurement. |
-| **`bf2_r2r.sv`** | **Register-to-register (R2R) wrappers** — each combinational core wrapped in input/output FFs (`bf2_s1_fetch_r2r`, `bf2_s2_decode_r2r`, `bf2_s3_execute_r2r`, `bf2_s4_writeback_r2r`, `bf2_longjump_r2r`, `bf2_alu_r2r`, `bf2_stack2_r2r`). Measures **true internal stage delay** (no IBUF/OBUF). |
-| **`bf2_2stage_r2r.sv`** | R2R wrappers for the 2-stage merged clouds: `bf2_fd_r2r` (fetch+decode), `bf2_exwb_r2r` (execute+writeback). |
-| **`bf2_stack2.sv`** | Shift-register LIFO stack (head + tail) replacing the original RAM-based `stack.v`. Registered read (`rd = head`) removes combinational read mux from critical path. **3× fewer LUTs**, slightly more FFs. |
+| **`bf1_soc.v`** | SoC wrapper instantiating `bf1` + UART + external memory interface (dual-port BRAMs for code/data, register-driven PS control via `axi_gpreg`). |
+| **`stack.v`** | Original LUTRAM-based return stack (combinational read, registered write). |
 
 ### Testbench & Verification
 
 | File | Description |
 |------|-------------|
 | **`bf1_verilator.cpp`** | C++ Verilator testbench for BF1 golden model. Runs compiled `.bin` bytecode, supports `+trace`, `+verbose`, `+maxsteps=N`. |
-| **`bf2_verilator.cpp`** | C++ Verilator testbench for `bf2_phase` (2-phase pipeline). Alternates `en_s12` / `en_s34` enables; samples outputs only after Phase B. |
 | **`tb_bf1_soc.sv`** | SystemVerilog testbench for `bf1_soc` (UART + external memory). |
 | **`tb_bf1_soc_uart.sv`** | UART-focused testbench. |
 | **`tb_longjump_pipeline.sv`** | Unit test for the 2-cycle long-jump helper. |
@@ -41,21 +28,21 @@ This directory contains the original **BF1 single-cycle Brainfuck CPU** and a se
 
 | File | Description |
 |------|-------------|
-| **`Makefile`** | Targets: `verilator-build`, `verilator-run`, `sim-verilator`, `verilator2-build`, `verilator2-run`, `sim-verilator2`, plus all `synth-*` targets for Vivado timing analysis. |
-| **`synth_stage.tcl`** | Vivado script: synthesize registered stage modules from `bf2.sv` (archived). |
-| **`synth_comb.tcl`** | Vivado script: synthesize combinational cores from `bf2_comb.sv` (pin-to-pin delay). |
-| **`synth_r2r.tcl`** | Vivado script: synthesize R2R wrappers from `bf2_r2r.sv` (true internal delay). |
-| **`synth_pipeline_full.tcl`** | Vivado script: synthesize full 4-stage pipeline `bf2_pipeline_full`. |
-| **`synth_2stage_full.tcl`** | Vivado script: synthesize full 2-stage pipeline `bf2_2stage_full`. |
-| **`synth_2stage_r2r.tcl`** | Vivado script: synthesize merged-cloud R2R wrappers `bf2_fd_r2r`, `bf2_exwb_r2r`. |
+| **`Makefile`** | Targets: `verilator-build`, `verilator-run`, `sim-verilator`, `sim`, `sim-uart`, `synth`. |
+| **`bf1_soc_synth.tcl`** | Vivado script: synthesize `bf1_soc` for timing analysis. |
+| **`bf1_soc_synth.xdc`** | Timing constraints for BF1 (multicycle -setup 2 / -hold 1 on ALU path). |
 
-### Documentation & Archive
+### IP Packaging
 
 | File | Description |
 |------|-------------|
-| **`TIMING_ANALYSIS_SUMMARY.md`** | Complete timing analysis: combinational delays, R2R measurements, full pipeline results, 2-stage comparison, stack2 impact, recommendations. |
-| **`verilator.md`** | How to build/run Verilator simulations for BF1 and BF2. |
-| **`archive_4stage/`** | Snapshot of the first 4-stage pipeline iteration (before stack2 + S2/S3 partition fix). Preserved for historical comparison. |
+| **`bf1_soc_ip.tcl`** | Creates the `bf1_soc` IP (VLNV: `analog.com:user:bf1_soc:1.0`). |
+
+### Documentation
+
+| File | Description |
+|------|-------------|
+| **`verilator.md`** | How to build/run Verilator simulations for BF1. |
 
 ---
 
@@ -69,42 +56,30 @@ make verilator-build          # builds obj_dir/Vbf1 (~1 min)
 make sim-verilator SIM_VER_PROG=../../../demos/brainfuck_org/src/hello.bin
 ```
 
-### Build & Run BF2 Phase (Functionally Verified Pipeline)
+### Vivado Simulation
 
 ```bash
 cd hdl/library/bf1_soc
-make verilator2-build         # builds obj_dir/Vbf2_phase_full
-make sim-verilator2 SIM_VER2_PROG=../../../demos/brainfuck_org/src/hello.bin
+make sim          # xsim with tb_bf1_soc
+make sim-uart     # xsim with tb_bf1_soc_uart (full UART handshake)
 ```
 
 ### Timing Analysis (Requires Vivado 2023.2)
 
 ```bash
-# Individual stage R2R timing (most accurate internal delay)
-make synth-r2r
-
-# Full pipeline synthesis + timing
-make synth-pipeline
-
-# 2-stage pipeline synthesis + timing
-make synth-2stage
-
-# All combinational pin-to-pin delays
-make synth-comb
+cd hdl/library/bf1_soc
+make synth
 ```
 
 ---
 
 ## Key Timing Results Summary
 
-| Design | WNS @ 100 MHz | Max Freq | LUTs | FFs | BRAM | Notes |
-|--------|---------------|----------|------|-----|------|-------|
-| BF1 (single-cycle) | — | ~100-120 MHz | ~50 | — | 0 | Golden model |
-| BF2 4-stage | **+6.445 ns** | **~281 MHz** | 53 | 137 | 9 (1×18K + 8×36K) | BRAM clock-to-out limited |
-| BF2 2-stage | +5.293 ns | ~212 MHz | 54 | **78** | 9 | Half FFs; ALU→DMEM write-addr path |
-| BF2 Phase (verified) | SoC: **+2.522** ns (standalone) / **+1.066** ns (routed) @ 100 MHz | — | 296 | 411 | 10×RAMB36 | `bf2_soc` wrapper: 2-phase enables, no multicycle constraints needed |
+| Design | WNS @ 100 MHz | Max Freq | Notes |
+|--------|---------------|----------|-------|
+| BF1 (single-cycle) | ~-2.5 ns | ~100-120 MHz | ALU path ~12.5 ns exceeds 10 ns period; requires multicycle constraints |
 
-**Critical bottleneck in all BRAM designs:** DMEM BRAM clock-to-out (2.454 ns). Adding output registers (`DOA_REG=1`) would cut this to ~0.5 ns, unlocking **>200 MHz**.
+The BF1 ALU datapath exceeds the 10 ns clock period at 100 MHz. The `bf1_timing.xdc` applies blanket `-setup 2 / -hold 1` multicycle exceptions to meet timing, limiting max frequency.
 
 ---
 
@@ -114,71 +89,15 @@ make synth-comb
 - All operations in one clock: fetch → decode → ALU → memory → writeback
 - 2-cycle long-jump prefix (`0xA0-0xBF`) already partially pipelined
 - Asynchronous memory model (simulation only)
-
-### BF2 4-Stage (Fetch → Decode → Execute → Mem/WB)
-- **S1 Fetch**: IMEM read (registered BRAM output) + pc+1
-- **S2 Decode**: Opcode decode, ALU operand setup, branch resolution
-- **S3 Execute**: ALU operation, long-jump target add, DMEM address
-- **S4 Mem/WB**: DMEM read/write, register file writeback, stack push/pop
-- IMEM BRAM registered output = fetch register
-- DMEM BRAM 1-cycle read/write
-
-### BF2 2-Stage (FD | EX/WB)
-- **FD** (Phase A): Fetch + Decode + PC commit (branch resolved here)
-- **EX/WB** (Phase B): Execute + Mem/WB + architectural state update
-- Eliminates IF/ID and EX/MEM register banks → **half the FFs**
-- DMEM write uses combinational EX address → new critical path (ALU→BRAM write-addr)
-
-### BF2 Phase (2-Phase, Functionally Verified)
-- Same logical split as 2-stage but driven by external `en_s12` / `en_s34`
-- Alternating enables simulate 2-cycle-per-instruction execution
-- No hazard logic needed (branch resolved in decode, async DMEM read)
-- Verified byte-for-byte against BF1 on all test programs
-
-### BF2 SoC (`bf2_soc.v`) — board integration
-- **Drive for 2 phases**: the wrapper's phase controller toggles `phase_a_done` and
-  asserts `en_s12` (phase A) / `en_s34` (phase B) on alternate cycles — one
-  instruction per 2 clock cycles, the same cadence as the old `bf1_ce` half-speed
-  clocking.
-- **IO stall** = hold both enables low (nothing commits): the wrapper evaluates
-  `io_rd_pending` / `io_wr_pending` (registered at the phase-A edge) against
-  `io_rx_valid` / `io_tx_ready`, so `','` writes and `'.'` strobes never fire
-  with stale data or a busy TX.
-- **Simplified reset**: `reset` for the core is synchronous active-high,
-  derived as `!resetq || ctrl_reset`.
-- **Async DMEM read**: `bf2_phase` reads `mem_din` combinationally in phase A;
-  the data-BRAM registered output is aligned by construction (phase-B read
-  address = next phase-A address) and the last-write bypass covers
-  read-after-write.
-- **No multicycle timing constraints**: every register-to-register path is
-  single-cycle (the phase clouds are ~4 ns), so `bf2_timing.xdc` is empty of
-  exceptions — replacing `bf1_timing.xdc`'s blanket `-setup 2 / -hold 1`
-  (which would be wrong for the 1-cycle phase-handoff paths).
-
----
-
-## Long-Jump Helper (2-Cycle Prefix)
-
-- **Prefix opcode** `0xA0-0xBF`: computes `pj_carry5 = pc[4:0] + insn[4:0]` carry, saves `pj_pc_high = pc[14:5]`
-- **Jump opcode** `[` / `]`: target = `{pj_pc_high + insn[14:5] + carry, pj_carry5[4:0]}`
-- **Key**: carry is REGISTERED between cycles → the two additions are **parallel from registers** (2.32 ns R2R), NOT chained (would be 3.99 ns)
-- Feeds the SAME `pc_next` mux in Execute: `pc_next = lj ? pj_result : alu_c`
-
----
-
-## Stack2: Shift-Register LIFO
-
-- Replaces original `stack.v` (LUTRAM with combinational read mux)
-- **Head + tail** shift register; `rd = head` is registered
-- **Benefits**: removes stack-read mux from critical path, **3× fewer LUTs** (150 → 53 in full pipeline), eliminates multi-driven net warnings
-- **Cost**: +27 FFs for shift register
+- Return stack: LUTRAM with combinational read mux
 
 ---
 
 ## Related Directories
 
-- **`demos/brainfuck_org/`** — Brainfuck source (`.b`), compiler (`comp_bf.py`), precompiled `.bin` files
-- **`hdl/projects/ebaz4205/`** — Vivado project for the EBAZ4205 board. The `bf1_soc` IP (BD instance `bf1_soc_0`) now wraps `bf2_soc.v` + `bf2_phase.sv`; `system_project.tcl` uses `bf2_timing.xdc`.
+- **`../bf2_soc/`** — BF2 pipeline experiments (2-phase, 4-stage, 2-stage) and timing analysis.
+- **`demos/brainfuck_org/`** — Brainfuck source (`.b`), compiler (`comp_bf.py`), precompiled `.bin` files.
+- **`hdl/projects/ebaz4205/`** — Vivado project for the EBAZ4205 board. Uses `bf2_soc` IP (BD instance `bf2_soc_0`) wrapping the verified 2-phase pipeline; `system_project.tcl` uses `bf2_timing.xdc`.
 - **`u-boot-xlnx/`**, **`scripts/`**, **`build/`** — FPGA build flow for `make sdimg`
 
 ---
