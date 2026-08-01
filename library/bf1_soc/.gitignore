@@ -22,3 +22,7 @@ work.*
 
 # Verilator model
 obj_dir/
+
+# Local overrides (parent .gitignore is aggressive)
+!verilator.txt
+!TIMING_ANALYSIS_SUMMARY.txt
