@@ -55,14 +55,14 @@ module bf1 (
    reg        pj_carry5;          // carry from prefix low addition
    reg  [7:0] pj_pc_high;        // pc[12:5] captured in prefix cycle
 
+   // 6-bit low sum with carry (shared between pipeline step 1 and lj_offset update)
+   wire [5:0] pj_low_sum = pc[4:0] + insn[4:0];
+
    // Pipeline result for long jump (step 2: mid addition with saved carry + pc_high)
    wire [7:0] pj_mid_sum;
    wire [12:0] pj_result;
    assign pj_mid_sum = pj_pc_high + insn + {7'b0, pj_carry5};
    assign pj_result = {pj_mid_sum[7:0], lj_offset[4:0]};
-
-   // 6-bit low sum with carry (shared between pipeline step 1 and lj_offset update)
-   wire [5:0] pj_low_sum = pc[4:0] + insn[4:0];
 
    // before ALU
    always @(maddr, insn, mem_din, lj, lj_offset, pc)
@@ -84,8 +84,8 @@ module bf1 (
       alu_c = alu_a + ($signed({alu_b,2'b0}) >>> 2);
    end
 
-   reg do_jump_or_ret;
-   reg do_jump;
+   reg do_jmp;   // [ (short) or long-jump prefix: enter/skip a loop
+   reg do_ret;   // ] (0x80): loop again or pop
 
    // after ALU
    assign io_dout = mem_din; // nothing else can go as IO output
@@ -98,13 +98,13 @@ module bf1 (
      ljN = 0;
      maddrN = maddr;
      mem_dout = io_din;
-     do_jump_or_ret = 0;
-     do_jump = 0;
+     do_jmp = 0;
+     do_ret = 0;
 
      casez ({lj,insn[7:5]})
        4'b0_00?: begin   maddrN = alu_c; end // < or >
        4'b0_01?: begin mem_dout = alu_c[7:0]; mem_wr = 1; end // - or +
-       4'b0_100: begin do_jump_or_ret = 1; do_jump = |insn[4:0]; end // [ or ]
+       4'b0_100: begin do_jmp = |insn[4:0]; do_ret = ~do_jmp; end // [ (len!=0) or ] (0x80)
        4'b1_???: ; // long jump - handled by lj in pcN logic (unconditional)
        4'b0_101: begin     ljN = 1; end // begin long jump
        4'b0_110: begin  mem_wr = 1; io_rd = 1; end // ,
@@ -117,38 +117,26 @@ module bf1 (
    // Low 5 bits of pc[4:0] + prefix_insn[4:0] (step 1 of pipeline)
    // lj_offset serves as pj_low (pj_low = lj_offset)
    assign lj_offsetN = pj_low_sum[4:0];
-   always @ (do_jump_or_ret, do_jump, pc, mem_din, rsp, rst0, alu_c, lj, pj_result)
+   always @ (do_jmp, do_ret, pc, mem_din, rsp, rst0, alu_c, lj, pj_result)
    begin
      // default: go to the next instruction
      pcN   = pc + 1'b1;
      rspN  = rsp;
      rstkW = 0;
 
-     if (do_jump_or_ret)
-     begin
-       if (do_jump)
-       begin // [
-         if (mem_din != 0) begin
-           rspN = rsp + 1'b1; // into the loop
-           rstkW = 1;
-         end else begin
-           pcN = alu_c[12:0]; // skip the loop
-         end
-       end
-       else
-       begin // ]
-         if (mem_din != 0) pcN = rst0; // loop again
-         else rspN = rsp - 1'b1; // leave the loop
+     if (do_jmp || lj)
+     begin // [ (or long-jump prefix): enter the loop, or skip it
+       if (mem_din != 0) begin
+         rspN = rsp + 1'b1; // into the loop, push return address
+         rstkW = 1;
+       end else begin
+         pcN = lj ? pj_result : alu_c[12:0]; // skip the loop
        end
      end
-
-     if (lj) begin
-       if (mem_din == 0)
-         pcN = pj_result; // skip the loop
-       else begin
-         rspN = rsp + 1'b1; // enter the loop, push return address
-         rstkW = 1;
-       end
+     else if (do_ret)
+     begin // ]
+       if (mem_din != 0) pcN = rst0; // loop again
+       else rspN = rsp - 1'b1; // leave the loop
      end
    end
 
