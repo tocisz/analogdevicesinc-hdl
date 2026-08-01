@@ -11,8 +11,9 @@ This directory contains the original **BF1 single-cycle Brainfuck CPU** and a se
 | File | Description |
 |------|-------------|
 | **`bf1.v`** | **Golden reference** — original single-cycle BF1 CPU (Verilog). Verified on hardware; all pipeline variants must match its byte-level output. |
-| **`bf1_soc.v`** | Top-level SoC wrapper instantiating `bf1` + UART + external memory interface. Used for `make sdimg` FPGA builds. |
-| **`bf2_phase.sv`** | **Functionally verified 2-phase pipeline** (FD \| EX/WB) — drop-in replacement for BF1. Passes Verilator byte-comparison against `bf1.v` on `hello.bin`, `mandelbrot.bin`, `squares.bin`, `xmastree.bin`. |
+| **`bf1_soc.v`** | Reference SoC wrapper instantiating `bf1` + UART + external memory interface (kept for the xsim testbenches `tb_bf1_soc*`). |
+| **`bf2_soc.v`** | **Production SoC wrapper** — the `bf1_soc` IP now packages this file. Drop-in replacement for `bf1_soc.v` (identical external interface) wrapping `bf2_phase_full`: generates the alternating `en_s12`/`en_s34` clock enables, derives the simplified synchronous active-high reset from `resetq` + PS `ctrl_reset`, adds IO-stall (RX/TX) via the core's `io_rd_pending`/`io_wr_pending` outputs, and presents the async-read DMEM model (registered BRAM + last-write bypass). |
+| **`bf2_phase.sv`** | **Functionally verified 2-phase pipeline** (FD \| EX/WB) — drop-in replacement for BF1. Passes Verilator byte-comparison against `bf1.v` on `hello.bin`, `mandelbrot.bin`, `squares.bin`, `xmastree.bin`, `ghost.bin`. |
 | **`bf2_pipeline.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models. Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
 | **`bf2_2stage.sv`** | **2-stage pipeline** (FD \| EX/WB) with BRAM models. Alternative merged-boundary design. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
 
@@ -101,7 +102,7 @@ make synth-comb
 | BF1 (single-cycle) | — | ~100-120 MHz | ~50 | — | 0 | Golden model |
 | BF2 4-stage | **+6.445 ns** | **~281 MHz** | 53 | 137 | 9 (1×18K + 8×36K) | BRAM clock-to-out limited |
 | BF2 2-stage | +5.293 ns | ~212 MHz | 54 | **78** | 9 | Half FFs; ALU→DMEM write-addr path |
-| BF2 Phase (verified) | N/A (Verilator only) | N/A | — | — | — | Byte-identical to BF1 |
+| BF2 Phase (verified) | SoC: **+2.522** ns (standalone) / **+1.066** ns (routed) @ 100 MHz | — | 296 | 411 | 10×RAMB36 | `bf2_soc` wrapper: 2-phase enables, no multicycle constraints needed |
 
 **Critical bottleneck in all BRAM designs:** DMEM BRAM clock-to-out (2.454 ns). Adding output registers (`DOA_REG=1`) would cut this to ~0.5 ns, unlocking **>200 MHz**.
 
@@ -134,6 +135,26 @@ make synth-comb
 - No hazard logic needed (branch resolved in decode, async DMEM read)
 - Verified byte-for-byte against BF1 on all test programs
 
+### BF2 SoC (`bf2_soc.v`) — board integration
+- **Drive for 2 phases**: the wrapper's phase controller toggles `phase_a_done` and
+  asserts `en_s12` (phase A) / `en_s34` (phase B) on alternate cycles — one
+  instruction per 2 clock cycles, the same cadence as the old `bf1_ce` half-speed
+  clocking.
+- **IO stall** = hold both enables low (nothing commits): the wrapper evaluates
+  `io_rd_pending` / `io_wr_pending` (registered at the phase-A edge) against
+  `io_rx_valid` / `io_tx_ready`, so `','` writes and `'.'` strobes never fire
+  with stale data or a busy TX.
+- **Simplified reset**: `reset` for the core is synchronous active-high,
+  derived as `!resetq || ctrl_reset`.
+- **Async DMEM read**: `bf2_phase` reads `mem_din` combinationally in phase A;
+  the data-BRAM registered output is aligned by construction (phase-B read
+  address = next phase-A address) and the last-write bypass covers
+  read-after-write.
+- **No multicycle timing constraints**: every register-to-register path is
+  single-cycle (the phase clouds are ~4 ns), so `bf2_timing.xdc` is empty of
+  exceptions — replacing `bf1_timing.xdc`'s blanket `-setup 2 / -hold 1`
+  (which would be wrong for the 1-cycle phase-handoff paths).
+
 ---
 
 ## Long-Jump Helper (2-Cycle Prefix)
@@ -157,7 +178,7 @@ make synth-comb
 ## Related Directories
 
 - **`demos/brainfuck_org/`** — Brainfuck source (`.b`), compiler (`comp_bf.py`), precompiled `.bin` files
-- **`hdl/projects/ebaz4205/`** — Vivado project for the EBAZ4205 board (uses `bf1_soc.v`)
+- **`hdl/projects/ebaz4205/`** — Vivado project for the EBAZ4205 board. The `bf1_soc` IP (BD instance `bf1_soc_0`) now wraps `bf2_soc.v` + `bf2_phase.sv`; `system_project.tcl` uses `bf2_timing.xdc`.
 - **`u-boot-xlnx/`**, **`scripts/`**, **`build/`** — FPGA build flow for `make sdimg`
 
 ---

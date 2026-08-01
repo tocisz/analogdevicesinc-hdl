@@ -13,7 +13,7 @@ adi_project_files ebaz4205 [list \
   "system_top.v" \
   "system_constr.xdc" \
   "system_constr_impl.xdc" \
-  "bf1_timing.xdc" \
+  "bf2_timing.xdc" \
   "$ad_hdl_dir/library/common/ad_iobuf.v"]
 
 set_property is_enabled false [get_files *system_sys_ps7_0.xdc]

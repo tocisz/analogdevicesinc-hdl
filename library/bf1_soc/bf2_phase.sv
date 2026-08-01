@@ -269,6 +269,14 @@ module bf2_phase_full #(
   input  logic [DATA_WIDTH-1:0]   io_din,
   output logic [DATA_WIDTH-1:0]   io_dout,
 
+  // IO handshake observability (for the SoC wrapper's phase controller):
+  // registered FD/EX flags of the instruction currently in EX.  They are
+  // stable for the whole phase-B region (including the B-wait stall), so
+  // the wrapper can hold en_s34 low until RX data / TX space is available
+  // without decoding the instruction itself.
+  output logic                    io_rd_pending,  // EX instruction is ','
+  output logic                    io_wr_pending,  // EX instruction is '.'
+
   // Code memory (registered output = insn; code_addr = prefetch address)
   output logic [CADDR_WIDTH-1:0]  code_addr,
   input  logic [7:0]              insn,
@@ -457,6 +465,9 @@ module bf2_phase_full #(
   assign io_wr    = (phase == PHASE_B) & ex_io_wr;      // '.' strobe at B edge
   assign io_rd    = (phase == PHASE_B) & ex_io_rd;      // ',' strobe at B edge
   assign io_dout  = ex_io_dout;             // '.' data (cell value, phase A)
+
+  assign io_rd_pending = ex_io_rd;          // registered at the phase-A edge
+  assign io_wr_pending = ex_io_wr;          // registered at the phase-A edge
 
   assign _rsp     = rsp_r;
   assign pc_debug = pc_r;

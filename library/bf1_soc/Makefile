@@ -4,6 +4,9 @@ GENERIC_DEPS += common.h
 GENERIC_DEPS += stack.v
 GENERIC_DEPS += bf1.v
 GENERIC_DEPS += bf1_soc.v
+GENERIC_DEPS += bf2_phase.sv
+GENERIC_DEPS += bf2_stack2.sv
+GENERIC_DEPS += bf2_soc.v
 
 XILINX_DEPS += bf1_soc_ip.tcl
 

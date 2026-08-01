@@ -13,11 +13,11 @@ and on the board.
 2. Compile a brainfuck program to bf1 bytecode (same compiler the board
    uses; the .bin lands next to the source)
 
-   cd demos/brainfuck_org && python3 comp_bf.py src/hello.b -o src/hello.bin
+   cd demos/brainfuck_org && python3 comp_bf.py src/hello.b -o bin/hello.bin
 
 3. Run it
 
-   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/src/hello.bin
+   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/bin/hello.bin
 
    Prints "Hello World!". stdout is the pure program output; diagnostics
    (program size, instruction count) go to stderr.
@@ -25,14 +25,14 @@ and on the board.
 Options
 -------
 
-   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/src/hello.bin in.txt
+   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/bin/hello.bin in.txt
        feed ',' from a file (ghost.b, xmastree.b)
-   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/src/hello.bin +maxsteps=1000000
+   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/bin/hello.bin +maxsteps=1000000
        stop after N instructions — for programs that never fall off the end
        of the code (equivalent of the board tool's -n / --max-time)
-   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/src/hello.bin +trace
+   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/bin/hello.bin +trace
        dump waves to bf1.vcd (view in gtkwave)
-   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/src/hello.bin +verbose
+   cd hdl/library/bf1_soc && ./obj_dir/Vbf1 ../../../demos/brainfuck_org/bin/hello.bin +verbose
        per-cycle CPU trace
 
 Makefile shortcut and cleanup
