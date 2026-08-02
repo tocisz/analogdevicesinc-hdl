@@ -40,11 +40,14 @@
 //     IMEM output latches code_ram[0] for the first phase A.
 //   - A stall is modelled by holding both enables low (nothing commits).
 //
-// Memory model: mem_din is treated as an ASYNC read of mem_addr.  During
-// phase A, mem_addr = maddr_r, so the phase-A cloud reads the tape cell
-// combinationally (branch decision for [ ] and the `-`/`+` ALU operand).
-// The SoC wrapper must present a read-through/bypassed DMEM value (a
-// registered-output BRAM alone would need a 1-cycle realignment there).
+// Memory model: the decode cloud treats mem_din as an ASYNC read of
+// mem_addr.  During phase A, mem_addr = maddr_r, so the cloud reads the
+// tape cell combinationally (branch decision for [ ] and the `-`/`+` ALU
+// operand).  The real DMEM is a registered-output BRAM whose read is stale
+// for one cycle after a write, so the core owns the read-after-write
+// bypass: mem_din is the raw BRAM read, and the internal last-write
+// forward presents the value written here to the decode cloud. The
+// wrapper only feeds the raw read; it needs no knowledge of the bypass.
 //
 // Functionally identical to bf1.v (same memory/IO/code interface, same
 // opcode semantics including the 2-cycle long-jump helper); one instruction
@@ -257,7 +260,8 @@ module bf2_phase_full #(
   input  logic                    en_s12,     // phase A: fetch+decode commit
   input  logic                    en_s34,     // phase B: execute+writeback commit
 
-  // Data memory (async read model; see header)
+  // Data memory.  mem_din is the raw BRAM read; the core presents
+  // async decode semantics via the internal last-write bypass.
   output logic [DADDR_WIDTH-1:0]  mem_addr,
   output logic                    mem_wr,
   output logic [DATA_WIDTH-1:0]   mem_dout,
@@ -311,6 +315,37 @@ module bf2_phase_full #(
   logic                   lj_r;        // long-jump pending (jump byte)
   logic [4:0]             lj_offset_r; // low 5 bits of the jump target
   logic                   pj_carry5_r; // long-jump helper regs
+  // ======================================================================
+  // Last-write bypass (read-after-write memory hazard)
+  // ======================================================================
+  // A registered-output BRAM returns stale data for one cycle after a
+  // write.  Because a write (phase B) is immediately followed by the read
+  // (phase A) and the write address becomes the next read address, the
+  // last written cell/data is exactly what the decode cloud needs when a
+  // store and the next instruction target the same tape cell.  This forward
+  // lives in the core (it schedules the read and the write), so the wrapper
+  // only has to feed the raw registered read.
+  logic [DADDR_WIDTH-1:0]  last_w_addr;
+  logic [DATA_WIDTH-1:0]  last_w_data;
+  logic                   last_w_valid;
+  logic [DATA_WIDTH-1:0]  mem_din_fwd;
+
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      last_w_addr  <= '0;
+      last_w_data  <= '0;
+      last_w_valid <= 1'b0;
+    end else begin
+      last_w_addr  <= mem_addr;
+      last_w_data  <= mem_dout;
+      last_w_valid <= mem_wr && !reset;
+    end
+  end
+
+  assign mem_din_fwd = (last_w_valid && last_w_addr == mem_addr)
+                       ? last_w_data
+                       : mem_din;
+
   logic [7:0]             pj_pc_high_r;
 
   // ======================================================================
@@ -328,7 +363,7 @@ module bf2_phase_full #(
 
   bf2_s12_comb #(.DADDR_WIDTH(DADDR_WIDTH), .CADDR_WIDTH(CADDR_WIDTH),
                   .DATA_WIDTH(DATA_WIDTH)) s12_comb (
-    .insn(insn), .pc(pc_r), .maddr(maddr_r), .mem_din(mem_din),
+    .insn(insn), .pc(pc_r), .maddr(maddr_r), .mem_din(mem_din_fwd),
     .lj(lj_r), .lj_offset(lj_offset_r), .pj_carry5(pj_carry5_r),
     .pj_pc_high(pj_pc_high_r), .rst0(rst0),
     .alu_a(s12_alu_a), .alu_b(s12_alu_b),
@@ -388,7 +423,7 @@ module bf2_phase_full #(
       ex_pc_next      <= s12_pc_next;
       ex_push         <= s12_push;
       ex_pop          <= s12_pop;
-      ex_io_dout      <= mem_din;      // the cell value for '.'
+      ex_io_dout      <= mem_din_fwd;  // the cell value for '.'
     end
   end
 

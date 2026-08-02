@@ -24,12 +24,11 @@
 //     = 0 while stopped and the registered IMEM output latches code_ram[0]
 //     before the CPU ever runs.  Code Port A reads every cycle (code_addr
 //     has no combinational dependence on insn, so no stall-freeze needed).
-//   * Async DMEM read model: bf2_phase reads mem_din combinationally in
-//     phase A (branch decision and `-`/`+` ALU operand).  The data BRAM
-//     registered output is aligned by construction — the phase-B read
-//     address (s34_maddr_next) becomes the next phase-A read address
-//     (maddr_r) — and the last-write bypass covers the same-edge
-//     read-after-write, exactly like bf1_soc.
+//   * Async DMEM read model: the core reads mem_din combinationally in
+//     phase A (branch decision and `-`/`+` ALU operand).  The read-after-
+//     write bypass is owned by bf2_phase (the last-write forward), so this
+//     wrapper just feeds the raw registered data_ra_dout output to the
+//     core's mem_din port; it has no knowledge of the bypass.
 //   * IO stall: a stall is modelled by holding en_s34 low (nothing
 //     commits).  The wrapper decides using the CPU's registered
 //     io_rd_pending / io_wr_pending flags, so the ',' write and the '.'
@@ -73,7 +72,6 @@ module bf2_soc (
   wire [14:0] mem_addr;
   wire        mem_wr;
   wire [7:0]  mem_dout;
-  wire [7:0]  mem_din;
   wire        io_wr;
   wire        io_rd;
   wire [7:0]  io_din;
@@ -256,34 +254,10 @@ module bf2_soc (
 
 
   // ==================================================================
-  // Data RAM bypass (read-after-write hazard)
-  //
-  // BRAM registered output is stale for one cycle after a write.  The
-  // bypass forwards the written data when the phase-A read addresses the
-  // same cell.  Because the write (phase B) is always immediately
-  // followed by the read (phase A of the next instruction), the captured
-  // last_write_addr is always the current maddr_r when a write happened.
+  // Data RAM read: the CPU's read-after-write bypass is owned by the
+  // bf2_phase core (see bf2_phase.sv).  This wrapper just feeds the raw
+  // registered BRAM read to the core's mem_din port.
   // ==================================================================
-  reg [14:0] last_write_addr;
-  reg [7:0]  last_write_data;
-  reg        last_write_valid;
-
-  always @(posedge clk_i or negedge resetq) begin
-    if (!resetq) begin
-      last_write_addr  <= 0;
-      last_write_data  <= 0;
-      last_write_valid <= 0;
-    end else begin
-      last_write_addr  <= mem_addr;
-      last_write_data  <= mem_dout;
-      last_write_valid <= mem_wr && !cpu_reset;
-    end
-  end
-
-  assign mem_din = (last_write_valid && last_write_addr == mem_addr)
-                   ? last_write_data
-                   : data_ra_dout;
-
 
   // ==================================================================
   // IO Bridge
@@ -448,7 +422,7 @@ module bf2_soc (
     .mem_addr(mem_addr),
     .mem_wr(mem_wr),
     .mem_dout(mem_dout),
-    .mem_din(mem_din),
+    .mem_din(data_ra_dout),
     .io_wr(io_wr),
     .io_rd(io_rd),
     .io_din(io_din),
