@@ -18,11 +18,11 @@
 // Stage 1: Instruction Fetch (combinational only)
 // ---------------------------------------------------------------------------
 module bf2_s1_fetch_comb #(
-  parameter CADDR_WIDTH = 13
+  parameter CodeAddressWidth = 13
 )(
-  input  logic [CADDR_WIDTH-1:0]  pc,
-  output logic [CADDR_WIDTH-1:0]  code_addr,
-  output logic [CADDR_WIDTH-1:0]  pc_next
+  input  logic [CodeAddressWidth-1:0]  pc,
+  output logic [CodeAddressWidth-1:0]  code_addr,
+  output logic [CodeAddressWidth-1:0]  pc_next
 );
   assign code_addr = pc;
   assign pc_next   = pc + 1'b1;
@@ -40,19 +40,19 @@ endmodule
 //   pure opcode decode and can be produced one stage early.)
 // ---------------------------------------------------------------------------
 module bf2_s2_decode_comb #(
-  parameter DADDR_WIDTH = 15,
-  parameter CADDR_WIDTH = 13,
-  parameter DATA_WIDTH  = 8
+  parameter DataAddressWidth = 15,
+  parameter CodeAddressWidth = 13,
+  parameter DataWidth  = 8
 )(
   input  logic [7:0]              insn,
-  input  logic [DADDR_WIDTH-1:0]  maddr,
-  input  logic [DATA_WIDTH-1:0]   mem_din,
+  input  logic [DataAddressWidth-1:0]  maddr,
+  input  logic [DataWidth-1:0]   mem_din,
   input  logic                    lj,
   input  logic [4:0]              lj_offset,
-  input  logic [CADDR_WIDTH-1:0]  pc,
+  input  logic [CodeAddressWidth-1:0]  pc,
 
-  output logic signed [DADDR_WIDTH-1:0] alu_a,
-  output logic signed [CADDR_WIDTH-1:0] alu_b,
+  output logic signed [DataAddressWidth-1:0] alu_a,
+  output logic signed [CodeAddressWidth-1:0] alu_b,
   output logic                          lj_out,
   output logic [4:0]                    lj_offset_out,
   output logic                          mem_wr,
@@ -118,33 +118,33 @@ endmodule
 //   rstk_push/rstk_pop are decoded here for the stack2 (push/pop) interface.
 // ---------------------------------------------------------------------------
 module bf2_s3_execute_comb #(
-  parameter DADDR_WIDTH = 15,
-  parameter CADDR_WIDTH = 13,
-  parameter DATA_WIDTH  = 8,
-  parameter DEPTH       = 4
+  parameter DataAddressWidth = 15,
+  parameter CodeAddressWidth = 13,
+  parameter DataWidth  = 8,
+  parameter Depth       = 4
 )(
-  input  logic signed [DADDR_WIDTH-1:0] alu_a,
-  input  logic signed [CADDR_WIDTH-1:0] alu_b,
+  input  logic signed [DataAddressWidth-1:0] alu_a,
+  input  logic signed [CodeAddressWidth-1:0] alu_b,
   input  logic [7:0]                    insn,
   input  logic                          do_jmp,
   input  logic                          do_ret,
   input  logic                          lj,
-  input  logic [CADDR_WIDTH-1:0]        pj_result,
-  input  logic [CADDR_WIDTH-1:0]        pc,
-  input  logic [DADDR_WIDTH-1:0]        maddr,
-  input  logic [DATA_WIDTH-1:0]         mem_din,
-  input  logic [DATA_WIDTH-1:0]         io_din,
-  input  logic [DEPTH-1:0]              rsp,
-  input  logic [CADDR_WIDTH-1:0]        rst0,
+  input  logic [CodeAddressWidth-1:0]        pj_result,
+  input  logic [CodeAddressWidth-1:0]        pc,
+  input  logic [DataAddressWidth-1:0]        maddr,
+  input  logic [DataWidth-1:0]         mem_din,
+  input  logic [DataWidth-1:0]         io_din,
+  input  logic [Depth-1:0]              rsp,
+  input  logic [CodeAddressWidth-1:0]        rst0,
 
-  output logic [DADDR_WIDTH-1:0]        alu_c,
-  output logic [CADDR_WIDTH-1:0]        pc_next,
-  output logic [DEPTH-1:0]              rsp_next,
+  output logic [DataAddressWidth-1:0]        alu_c,
+  output logic [CodeAddressWidth-1:0]        pc_next,
+  output logic [Depth-1:0]              rsp_next,
   output logic                          rstk_push,
   output logic                          rstk_pop,
-  output logic [CADDR_WIDTH-1:0]        rstk_data,
-  output logic [DADDR_WIDTH-1:0]        maddr_next,
-  output logic [DATA_WIDTH-1:0]         mem_dout
+  output logic [CodeAddressWidth-1:0]        rstk_data,
+  output logic [DataAddressWidth-1:0]        maddr_next,
+  output logic [DataWidth-1:0]         mem_dout
 );
 
   // ALU computation
@@ -176,7 +176,7 @@ module bf2_s3_execute_comb #(
         rsp_next    = rsp + 1'b1;
         rstk_push   = 1'b1;
       end else begin
-        pc_next = lj ? pj_result : alu_c[CADDR_WIDTH-1:0];
+        pc_next = lj ? pj_result : alu_c[CodeAddressWidth-1:0];
       end
     end else if (do_ret) begin
       if (mem_din != 0) pc_next = rst0;
@@ -193,34 +193,34 @@ endmodule
 // Stage 4: Memory / Writeback (combinational only)
 // ---------------------------------------------------------------------------
 module bf2_s4_writeback_comb #(
-  parameter DADDR_WIDTH = 15,
-  parameter CADDR_WIDTH = 13,
-  parameter DATA_WIDTH  = 8,
-  parameter DEPTH       = 4
+  parameter DataAddressWidth = 15,
+  parameter CodeAddressWidth = 13,
+  parameter DataWidth  = 8,
+  parameter Depth       = 4
 )(
-  input  logic [DADDR_WIDTH-1:0]  alu_c,
-  input  logic [CADDR_WIDTH-1:0]  pc_next,
-  input  logic [DEPTH-1:0]        rsp_next,
+  input  logic [DataAddressWidth-1:0]  alu_c,
+  input  logic [CodeAddressWidth-1:0]  pc_next,
+  input  logic [Depth-1:0]        rsp_next,
   input  logic                    rstk_write,
-  input  logic [CADDR_WIDTH-1:0]  rstk_data,
-  input  logic [DADDR_WIDTH-1:0]  maddr_next,
+  input  logic [CodeAddressWidth-1:0]  rstk_data,
+  input  logic [DataAddressWidth-1:0]  maddr_next,
   input  logic                    mem_wr,
   input  logic                    io_wr,
   input  logic                    io_rd,
-  input  logic [DATA_WIDTH-1:0]   mem_dout,
+  input  logic [DataWidth-1:0]   mem_dout,
   input  logic                    lj,
   input  logic [4:0]              lj_offset,
   input  logic                    pj_carry5,
   input  logic [7:0]              pj_pc_high,
 
-  output logic [DADDR_WIDTH-1:0]  mem_addr,
+  output logic [DataAddressWidth-1:0]  mem_addr,
   output logic                    mem_wr_out,
-  output logic [DATA_WIDTH-1:0]   mem_dout_out,
+  output logic [DataWidth-1:0]   mem_dout_out,
   output logic                    io_wr_out,
   output logic                    io_rd_out,
-  output logic [CADDR_WIDTH-1:0]  pc_out,
-  output logic [DEPTH-1:0]        rsp_out,
-  output logic [DADDR_WIDTH-1:0]  maddr_out,
+  output logic [CodeAddressWidth-1:0]  pc_out,
+  output logic [Depth-1:0]        rsp_out,
+  output logic [DataAddressWidth-1:0]  maddr_out,
   output logic                    lj_out,
   output logic [4:0]              lj_offset_out,
   output logic                    pj_carry5_out,
@@ -247,13 +247,13 @@ endmodule
 // Long Jump Pipeline Helper (2-cycle: prefix + jump) - Combinational Core
 // ---------------------------------------------------------------------------
 module bf2_longjump_pipeline_comb #(
-  parameter CADDR_WIDTH = 13
+  parameter CodeAddressWidth = 13
 )(
   input  logic [7:0]              prefix_insn,
   input  logic [7:0]              jump_insn,
-  input  logic [CADDR_WIDTH-1:0]  pc,
+  input  logic [CodeAddressWidth-1:0]  pc,
 
-  output logic [CADDR_WIDTH-1:0]  jump_target
+  output logic [CodeAddressWidth-1:0]  jump_target
 );
 
   // Stage 1: Prefix cycle - compute low 5 bits + carry
@@ -283,12 +283,12 @@ endmodule
 // ALU Module (standalone for timing measurement)
 // ---------------------------------------------------------------------------
 module bf2_alu_comb #(
-  parameter DADDR_WIDTH = 15,
-  parameter CADDR_WIDTH = 13
+  parameter DataAddressWidth = 15,
+  parameter CodeAddressWidth = 13
 )(
-  input  logic signed [DADDR_WIDTH-1:0] alu_a,
-  input  logic signed [CADDR_WIDTH-1:0] alu_b,
-  output logic [DADDR_WIDTH-1:0]        alu_c
+  input  logic signed [DataAddressWidth-1:0] alu_a,
+  input  logic signed [CodeAddressWidth-1:0] alu_b,
+  output logic [DataAddressWidth-1:0]        alu_c
 );
   always_comb begin
     alu_c = alu_a + ($signed({alu_b, 2'b0}) >>> 2);
@@ -300,21 +300,21 @@ endmodule
 // Stack Module (for reference - same as stack.v)
 // ---------------------------------------------------------------------------
 module bf2_stack #(
-  parameter DEPTH = 4,
-  parameter WIDTH = 16
+  parameter Depth = 4,
+  parameter Width = 16
 )(
   input  logic              clk,
-  input  logic [DEPTH-1:0]  ra,
-  output logic [WIDTH-1:0]  rd,
+  input  logic [Depth-1:0]  ra,
+  output logic [Width-1:0]  rd,
   input  logic              we,
-  input  logic [DEPTH-1:0]  wa,
-  input  logic [WIDTH-1:0]  wd
+  input  logic [Depth-1:0]  wa,
+  input  logic [Width-1:0]  wd
 );
-  logic [WIDTH-1:0] store [0:(2**DEPTH)-1];
+  logic [Width-1:0] store [0:(2**Depth)-1];
 
   initial begin
     integer k;
-    for (k = 0; k < (2**DEPTH); k++) store[k] = '0;
+    for (k = 0; k < (2**Depth); k++) store[k] = '0;
   end
 
   always_ff @(posedge clk) if (we) store[wa] <= wd;
@@ -325,24 +325,24 @@ endmodule
 // ---------------------------------------------------------------------------
 // Stack2 (LIFO push/pop/top) - combinational core for timing measurement
 // head register: top of stack (registered output -> zero read-path delay)
-// tail register: remaining DEPTH-1 entries as a shift register
+// tail register: remaining Depth-1 entries as a shift register
 // ---------------------------------------------------------------------------
 module bf2_stack2_comb #(
-  parameter DEPTH = 16,
-  parameter WIDTH = 13
+  parameter Depth = 16,
+  parameter Width = 13
 )(
   input  logic              we,       // push (write enable)
   input  logic [1:0]        delta,    // {dir, move}: 00=hold, 01=push, 11=pop
-  input  logic [WIDTH-1:0]  wd,       // push data
-  output logic [WIDTH-1:0]  rd,       // top of stack
-  input  logic [WIDTH-1:0]  head,     // current head register value
-  input  logic [((WIDTH*DEPTH)-1):0] tail, // current tail register value
-  output logic [WIDTH-1:0]  headN,    // next head
-  output logic [((WIDTH*DEPTH)-1):0] tailN // next tail
+  input  logic [Width-1:0]  wd,       // push data
+  output logic [Width-1:0]  rd,       // top of stack
+  input  logic [Width-1:0]  head,     // current head register value
+  input  logic [((Width*Depth)-1):0] tail, // current tail register value
+  output logic [Width-1:0]  headN,    // next head
+  output logic [((Width*Depth)-1):0] tailN // next tail
 );
-  localparam BITS = (WIDTH * DEPTH) - 1;
+  localparam Bits = (Width * Depth) - 1;
 
-  assign headN = we ? wd : tail[WIDTH-1:0];
-  assign tailN = delta[1] ? {{WIDTH{1'b0}}, tail[BITS:WIDTH]} : {tail[BITS-WIDTH:0], head};
+  assign headN = we ? wd : tail[Width-1:0];
+  assign tailN = delta[1] ? {{Width{1'b0}}, tail[Bits:Width]} : {tail[Bits-Width:0], head};
   assign rd = head;
 endmodule

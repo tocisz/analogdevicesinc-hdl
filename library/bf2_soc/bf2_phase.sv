@@ -72,22 +72,22 @@
 // short-`[` skip target (BF1 computes it via alu_a={0,pc}, alu_b=signext).
 // ---------------------------------------------------------------------------
 module bf2_s12_comb #(
-  parameter int DADDR_WIDTH = 15,
-  parameter int CADDR_WIDTH = 13,
-  parameter int DATA_WIDTH  = 8
+  parameter int DataAddressWidth = 15,
+  parameter int CodeAddressWidth = 13,
+  parameter int DataWidth  = 8
 )(
   input  logic [7:0]              insn,
-  input  logic [CADDR_WIDTH-1:0]  pc,
-  input  logic [DADDR_WIDTH-1:0]  maddr,
-  input  logic [DATA_WIDTH-1:0]   mem_din,
+  input  logic [CodeAddressWidth-1:0]  pc,
+  input  logic [DataAddressWidth-1:0]  maddr,
+  input  logic [DataWidth-1:0]   mem_din,
   input  logic                    lj,          // long-jump pending (jump byte)
   input  logic [4:0]              lj_offset,   // arch lj_offset (prefix value)
   input  logic                    pj_carry5,   // arch long-jump helper regs
   input  logic [7:0]              pj_pc_high,
-  input  logic [CADDR_WIDTH-1:0]  rst0,        // return stack top
+  input  logic [CodeAddressWidth-1:0]  rst0,        // return stack top
 
-  output logic signed [DADDR_WIDTH-1:0] alu_a,
-  output logic signed [CADDR_WIDTH-1:0] alu_b,
+  output logic signed [DataAddressWidth-1:0] alu_a,
+  output logic signed [CodeAddressWidth-1:0] alu_b,
   output logic                          lj_next,        // prefix seen this instr
   output logic [4:0]                    lj_offset_next, // pc[4:0] + insn[4:0]
   output logic                          pj_carry5_next, // carry of that add
@@ -95,7 +95,7 @@ module bf2_s12_comb #(
   output logic                          mem_wr,         // '-' '+' ','
   output logic                          io_wr,          // '.'
   output logic                          io_rd,          // ','
-  output logic [CADDR_WIDTH-1:0]        pc_next,        // branch-resolved pc
+  output logic [CodeAddressWidth-1:0]        pc_next,        // branch-resolved pc
   output logic                          push,           // enter loop: push pc+1
   output logic                          pop             // leave loop: pop
 );
@@ -115,13 +115,13 @@ module bf2_s12_comb #(
   // insn; only used when lj=1.  8-bit sum (carry-out unused -> no pj_mid_sum bit 8).
   logic [7:0] pj_mid_sum;
   assign pj_mid_sum = pj_pc_high + insn + {{(7){1'b0}}, pj_carry5};
-  logic [CADDR_WIDTH-1:0] pj_result;
+  logic [CodeAddressWidth-1:0] pj_result;
   assign pj_result = {pj_mid_sum[7:0], lj_offset[4:0]};
 
   // ---- Short-`[` skip target: pc + sign-extended insn[5:0] (BF1's ALU
   // for the [ opcode: alu_a = {0,pc}, alu_b = signext(insn[5:0]))
-  logic [CADDR_WIDTH-1:0] skip_target;
-  assign skip_target = pc + {{(CADDR_WIDTH-6){insn[5]}}, insn[5:0]};
+  logic [CodeAddressWidth-1:0] skip_target;
+  assign skip_target = pc + {{(CodeAddressWidth-6){insn[5]}}, insn[5:0]};
 
   // ---- Pre-ALU operand setup (identical to BF1 "before ALU" block)
   always_comb begin
@@ -210,29 +210,29 @@ endmodule
 // here — they were resolved in phase A and ride in the FD/EX registers.
 // ---------------------------------------------------------------------------
 module bf2_s34_comb #(
-  parameter int DADDR_WIDTH = 15,
-  parameter int CADDR_WIDTH = 13,
-  parameter int DATA_WIDTH  = 8,
-  parameter int DEPTH       = 4
+  parameter int DataAddressWidth = 15,
+  parameter int CodeAddressWidth = 13,
+  parameter int DataWidth  = 8,
+  parameter int Depth       = 4
 )(
-  input  logic signed [DADDR_WIDTH-1:0] alu_a,   // FD/EX operands
-  input  logic signed [CADDR_WIDTH-1:0] alu_b,
+  input  logic signed [DataAddressWidth-1:0] alu_a,   // FD/EX operands
+  input  logic signed [CodeAddressWidth-1:0] alu_b,
   input  logic [2:0]                    insn_op, // FD/EX opcode = insn[7:5]
   input  logic                          lj,      // FD/EX: lj flag of this insn
-  input  logic [DADDR_WIDTH-1:0]        maddr,   // committed tape pointer
-  input  logic [DATA_WIDTH-1:0]         io_din,  // ',' write data (async)
-  input  logic [DEPTH-1:0]              rsp,     // committed stack depth
+  input  logic [DataAddressWidth-1:0]        maddr,   // committed tape pointer
+  input  logic [DataWidth-1:0]         io_din,  // ',' write data (async)
+  input  logic [Depth-1:0]              rsp,     // committed stack depth
   input  logic                          push,    // from phase A (enter loop)
   input  logic                          pop,     // from phase A (leave loop)
 
-  output logic [DADDR_WIDTH-1:0]        maddr_next,
-  output logic [DATA_WIDTH-1:0]         mem_dout,
-  output logic [DEPTH-1:0]              rsp_next
+  output logic [DataAddressWidth-1:0]        maddr_next,
+  output logic [DataWidth-1:0]         mem_dout,
+  output logic [Depth-1:0]              rsp_next
 );
 
   // ALU result (sumed only internally below: maddr_next / mem_dout; not
   // exposed as an output port so the top has no dangling observer).
-  logic [DADDR_WIDTH-1:0] alu_c;
+  logic [DataAddressWidth-1:0] alu_c;
 
   // ---- ALU (identical formula to BF1: a + signext(b))
   always_comb begin
@@ -252,7 +252,7 @@ module bf2_s34_comb #(
 
   // ---- Return-stack depth
   always_comb begin
-    rsp_next = rsp + {{(DEPTH-1){1'b0}}, push} - {{(DEPTH-1){1'b0}}, pop};
+    rsp_next = rsp + {{(Depth-1){1'b0}}, push} - {{(Depth-1){1'b0}}, pop};
   end
 endmodule
 
@@ -261,10 +261,10 @@ endmodule
 // BF2-PHASE top: 2-phase machine, drop-in for bf1.v
 // ============================================================================
 module bf2_phase #(
-  parameter int CADDR_WIDTH = 13,
-  parameter int DADDR_WIDTH = 15,
-  parameter int DATA_WIDTH  = 8,
-  parameter int DEPTH       = 4        // return-stack depth pointer width (bits)
+  parameter int CodeAddressWidth = 13,
+  parameter int DataAddressWidth = 15,
+  parameter int DataWidth  = 8,
+  parameter int Depth       = 4        // return-stack depth pointer width (bits)
 )(
   input  logic                    clk,
   input  logic                    reset,      // synchronous, active high
@@ -273,16 +273,16 @@ module bf2_phase #(
 
   // Data memory.  mem_din is the raw BRAM read; the core presents
   // async decode semantics via the internal last-write bypass.
-  output logic [DADDR_WIDTH-1:0]  mem_addr,
+  output logic [DataAddressWidth-1:0]  mem_addr,
   output logic                    mem_wr,
-  output logic [DATA_WIDTH-1:0]   mem_dout,
-  input  logic [DATA_WIDTH-1:0]   mem_din,
+  output logic [DataWidth-1:0]   mem_dout,
+  input  logic [DataWidth-1:0]   mem_din,
 
   // IO
   output logic                    io_wr,
   output logic                    io_rd,
-  input  logic [DATA_WIDTH-1:0]   io_din,
-  output logic [DATA_WIDTH-1:0]   io_dout,
+  input  logic [DataWidth-1:0]   io_din,
+  output logic [DataWidth-1:0]   io_dout,
 
   // IO handshake observability (for the SoC wrapper's phase controller):
   // registered FD/EX flags of the instruction currently in EX.  They are
@@ -293,12 +293,12 @@ module bf2_phase #(
   output logic                    io_wr_pending,  // EX instruction is '.'
 
   // Code memory (registered output = insn; code_addr = prefetch address)
-  output logic [CADDR_WIDTH-1:0]  code_addr,
+  output logic [CodeAddressWidth-1:0]  code_addr,
   input  logic [7:0]              insn,
 
   // Debug
-  output logic [DEPTH-1:0]        _rsp,
-  output logic [CADDR_WIDTH-1:0]  pc_debug
+  output logic [Depth-1:0]        _rsp,
+  output logic [CodeAddressWidth-1:0]  pc_debug
 );
 
   // ---------------------------------------------------------------------
@@ -315,14 +315,14 @@ module bf2_phase #(
   phase_e phase;
   assign phase = en_s12 ? PHASE_A : (en_s34 ? PHASE_B : PHASE_IDLE);
 
-  localparam int StackEntries = (1 << DEPTH) - 1; // stack2 = head + tail entries
+  localparam int StackEntries = (1 << Depth) - 1; // stack2 = head + tail entries
 
   // ======================================================================
   // Architectural state (committed at phase-B edges, read by both clouds)
   // ======================================================================
-  logic [CADDR_WIDTH-1:0] pc_r;        // committed at phase-A edge (see below)
-  logic [DADDR_WIDTH-1:0] maddr_r;     // tape pointer
-  logic [DEPTH-1:0]       rsp_r;       // return-stack depth
+  logic [CodeAddressWidth-1:0] pc_r;        // committed at phase-A edge (see below)
+  logic [DataAddressWidth-1:0] maddr_r;     // tape pointer
+  logic [Depth-1:0]       rsp_r;       // return-stack depth
   logic                   lj_r;        // long-jump pending (jump byte)
   logic [4:0]             lj_offset_r; // low 5 bits of the jump target
   logic                   pj_carry5_r; // long-jump helper regs
@@ -336,10 +336,10 @@ module bf2_phase #(
   // store and the next instruction target the same tape cell.  This forward
   // lives in the core (it schedules the read and the write), so the wrapper
   // only has to feed the raw registered read.
-  logic [DADDR_WIDTH-1:0]  last_w_addr;
-  logic [DATA_WIDTH-1:0]  last_w_data;
+  logic [DataAddressWidth-1:0]  last_w_addr;
+  logic [DataWidth-1:0]  last_w_data;
   logic                   last_w_valid;
-  logic [DATA_WIDTH-1:0]  mem_din_fwd;
+  logic [DataWidth-1:0]  mem_din_fwd;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -362,18 +362,18 @@ module bf2_phase #(
   // ======================================================================
   // Phase A cloud (S1+S2): fetch+decode+branch resolution
   // ======================================================================
-  logic signed [DADDR_WIDTH-1:0] s12_alu_a;
-  logic signed [CADDR_WIDTH-1:0] s12_alu_b;
+  logic signed [DataAddressWidth-1:0] s12_alu_a;
+  logic signed [CodeAddressWidth-1:0] s12_alu_b;
   logic                          s12_lj_next;
   logic [4:0]                    s12_lj_offset_next;
   logic                          s12_pj_carry5_next;
   logic [7:0]                    s12_pj_pc_high_next;
   logic                          s12_mem_wr, s12_io_wr, s12_io_rd;
-  logic [CADDR_WIDTH-1:0]        s12_pc_next;
+  logic [CodeAddressWidth-1:0]        s12_pc_next;
   logic                          s12_push, s12_pop;
 
-  bf2_s12_comb #(.DADDR_WIDTH(DADDR_WIDTH), .CADDR_WIDTH(CADDR_WIDTH),
-                  .DATA_WIDTH(DATA_WIDTH)) s12_comb (
+  bf2_s12_comb #(.DataAddressWidth(DataAddressWidth), .CodeAddressWidth(CodeAddressWidth),
+                  .DataWidth(DataWidth)) s12_comb (
     .insn(insn), .pc(pc_r), .maddr(maddr_r), .mem_din(mem_din_fwd),
     .lj(lj_r), .lj_offset(lj_offset_r), .pj_carry5(pj_carry5_r),
     .pj_pc_high(pj_pc_high_r), .rst0(rst0),
@@ -387,8 +387,8 @@ module bf2_phase #(
   // ======================================================================
   // FD/EX registers (committed at the phase-A edge)
   // ======================================================================
-  logic signed [DADDR_WIDTH-1:0] ex_alu_a;
-  logic signed [CADDR_WIDTH-1:0] ex_alu_b;
+  logic signed [DataAddressWidth-1:0] ex_alu_a;
+  logic signed [CodeAddressWidth-1:0] ex_alu_b;
   logic [2:0]                    ex_insn_op; // phase-B opcode (insn[7:5])
   logic                          ex_lj;      // lj flag ACTIVE for this insn
   logic                          ex_lj_next; // prefix seen (-> arch lj at B)
@@ -396,9 +396,9 @@ module bf2_phase #(
   logic                          ex_pj_carry5;
   logic [7:0]                    ex_pj_pc_high;
   logic                          ex_mem_wr, ex_io_wr, ex_io_rd;
-  logic [CADDR_WIDTH-1:0]        ex_pc_next; // branch-resolved pc (push data)
+  logic [CodeAddressWidth-1:0]        ex_pc_next; // branch-resolved pc (push data)
   logic                          ex_push, ex_pop;
-  logic [DATA_WIDTH-1:0]         ex_io_dout; // mem_din for '.' (stable in B)
+  logic [DataWidth-1:0]         ex_io_dout; // mem_din for '.' (stable in B)
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -441,12 +441,12 @@ module bf2_phase #(
   // ======================================================================
   // Phase B cloud (S3+S4): ALU + post-ALU + stack
   // ======================================================================
-  logic [DADDR_WIDTH-1:0] s34_maddr_next;
-  logic [DATA_WIDTH-1:0]  s34_mem_dout;
-  logic [DEPTH-1:0]       s34_rsp_next;
+  logic [DataAddressWidth-1:0] s34_maddr_next;
+  logic [DataWidth-1:0]  s34_mem_dout;
+  logic [Depth-1:0]       s34_rsp_next;
 
-  bf2_s34_comb #(.DADDR_WIDTH(DADDR_WIDTH), .CADDR_WIDTH(CADDR_WIDTH),
-                  .DATA_WIDTH(DATA_WIDTH), .DEPTH(DEPTH)) s34_comb (
+  bf2_s34_comb #(.DataAddressWidth(DataAddressWidth), .CodeAddressWidth(CodeAddressWidth),
+                  .DataWidth(DataWidth), .Depth(Depth)) s34_comb (
     .alu_a(ex_alu_a), .alu_b(ex_alu_b), .insn_op(ex_insn_op), .lj(ex_lj),
     .maddr(maddr_r), .io_din(io_din), .rsp(rsp_r),
     .push(ex_push), .pop(ex_pop),
@@ -460,8 +460,8 @@ module bf2_phase #(
   // Write enable is gated by phase == PHASE_B so the stack only ever
   // changes at a phase-B edge (ex_push/ex_pop are ID/EX regs, stable).
   // ======================================================================
-  logic [CADDR_WIDTH-1:0] rst0;
-  bf2_stack2 #(.DEPTH(StackEntries), .WIDTH(CADDR_WIDTH)) rstack (
+  logic [CodeAddressWidth-1:0] rst0;
+  bf2_stack2 #(.Depth(StackEntries), .Width(CodeAddressWidth)) rstack (
     .clk(clk),
     .we((phase == PHASE_B) & ex_push),
     .delta({(phase == PHASE_B) & ex_pop, (phase == PHASE_B) & (ex_push | ex_pop)}),

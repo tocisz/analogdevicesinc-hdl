@@ -43,18 +43,18 @@
 // Simple BRAM Model (for instruction memory)
 // ---------------------------------------------------------------------------
 module bf2_bram_icode #(
-  parameter CADDR_WIDTH = 13,
-  parameter DEPTH = 13
+  parameter CodeAddressWidth = 13,
+  parameter Depth = 13
 )(
   input  logic                    clk,
-  input  logic [CADDR_WIDTH-1:0]  addr,
+  input  logic [CodeAddressWidth-1:0]  addr,
   output logic [7:0]              dout
 );
-  (* ram_style = "block" *) logic [7:0] mem [0:(1<<DEPTH)-1];
+  (* ram_style = "block" *) logic [7:0] mem [0:(1<<Depth)-1];
 
   initial begin
     integer i;
-    for (i = 0; i < (1<<DEPTH); i++) mem[i] = 8'h00;
+    for (i = 0; i < (1<<Depth); i++) mem[i] = 8'h00;
   end
 
   always_ff @(posedge clk) dout <= mem[addr];
@@ -65,21 +65,21 @@ endmodule
 // Simple BRAM Model (for data memory)
 // ---------------------------------------------------------------------------
 module bf2_bram_data #(
-  parameter DADDR_WIDTH = 15,
-  parameter DATA_WIDTH  = 8,
-  parameter DEPTH       = 15
+  parameter DataAddressWidth = 15,
+  parameter DataWidth  = 8,
+  parameter Depth       = 15
 )(
   input  logic                    clk,
   input  logic                    we,
-  input  logic [DADDR_WIDTH-1:0]  addr,
-  input  logic [DATA_WIDTH-1:0]   din,
-  output logic [DATA_WIDTH-1:0]   dout
+  input  logic [DataAddressWidth-1:0]  addr,
+  input  logic [DataWidth-1:0]   din,
+  output logic [DataWidth-1:0]   dout
 );
-  (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem [0:(1<<DEPTH)-1];
+  (* ram_style = "block" *) logic [DataWidth-1:0] mem [0:(1<<Depth)-1];
 
   initial begin
     integer i;
-    for (i = 0; i < (1<<DEPTH); i++) mem[i] = '0;
+    for (i = 0; i < (1<<Depth); i++) mem[i] = '0;
   end
 
   always_ff @(posedge clk) begin
@@ -95,20 +95,20 @@ endmodule
 // Measures: PC register -> IMEM addr -> IMEM read -> insn register
 // ---------------------------------------------------------------------------
 module bf2_s1_fetch_with_imem #(
-  parameter CADDR_WIDTH = 13
+  parameter CodeAddressWidth = 13
 )(
   input  logic                    clk,
   input  logic                    resetq,
   input  logic                    cpu_active,
-  output logic [CADDR_WIDTH-1:0]  code_addr,
+  output logic [CodeAddressWidth-1:0]  code_addr,
   output logic [7:0]              insn,
-  output logic [CADDR_WIDTH-1:0]  pc_next
+  output logic [CodeAddressWidth-1:0]  pc_next
 );
 
-  logic [CADDR_WIDTH-1:0] pc_r;
+  logic [CodeAddressWidth-1:0] pc_r;
 
   // IMEM
-  bf2_bram_icode #(.CADDR_WIDTH(CADDR_WIDTH)) imem_inst (
+  bf2_bram_icode #(.CodeAddressWidth(CodeAddressWidth)) imem_inst (
     .clk(clk), .addr(code_addr), .dout(insn)
   );
 
@@ -129,39 +129,39 @@ endmodule
 // Full Pipeline (4-stage) with Memory for End-to-End Timing
 // ============================================================================
 module bf2_pipeline_full #(
-  parameter CADDR_WIDTH = 13,
-  parameter DADDR_WIDTH = 15,
-  parameter DATA_WIDTH  = 8,
-  parameter DEPTH       = 4
+  parameter CodeAddressWidth = 13,
+  parameter DataAddressWidth = 15,
+  parameter DataWidth  = 8,
+  parameter Depth       = 4
 )(
   input  logic                    clk,
   input  logic                    resetq,
   input  logic                    cpu_active,
   input  logic                    ctrl_reset_i,
-  output logic [CADDR_WIDTH-1:0]  pc_debug,
-  output logic [DADDR_WIDTH-1:0]  mem_addr,
+  output logic [CodeAddressWidth-1:0]  pc_debug,
+  output logic [DataAddressWidth-1:0]  mem_addr,
   output logic                    mem_wr,
-  output logic [DATA_WIDTH-1:0]   mem_dout,
+  output logic [DataWidth-1:0]   mem_dout,
   output logic                    io_wr,
   output logic                    io_rd,
-  input  logic [DATA_WIDTH-1:0]   io_din,
-  output logic [DATA_WIDTH-1:0]   io_dout,
-  output logic [DEPTH-1:0]        _rsp
+  input  logic [DataWidth-1:0]   io_din,
+  output logic [DataWidth-1:0]   io_dout,
+  output logic [Depth-1:0]        _rsp
 );
 
   // ======================================================================
   // S1: Fetch (PC -> IMEM -> insn)
   // ======================================================================
-  logic [CADDR_WIDTH-1:0] s1_code_addr;
+  logic [CodeAddressWidth-1:0] s1_code_addr;
   logic [7:0]             s1_insn;
 
-  bf2_s1_fetch_with_imem #(.CADDR_WIDTH(CADDR_WIDTH)) s1 (
+  bf2_s1_fetch_with_imem #(.CodeAddressWidth(CodeAddressWidth)) s1 (
     .clk(clk), .resetq(resetq), .cpu_active(cpu_active),
     .code_addr(s1_code_addr), .insn(s1_insn)
   );
 
   // ---- IF/ID: pair the fetched instruction with its own PC ----
-  logic [CADDR_WIDTH-1:0] id_pc;
+  logic [CodeAddressWidth-1:0] id_pc;
   logic [7:0]             id_insn;
   always_ff @(posedge clk or negedge resetq) begin
     if (!resetq) begin
@@ -176,14 +176,14 @@ module bf2_pipeline_full #(
   // ======================================================================
   // S2: Decode (pre-ALU operand setup + pure control decode)
   // ======================================================================
-  logic signed [DADDR_WIDTH-1:0] s2_alu_a;
-  logic signed [CADDR_WIDTH-1:0] s2_alu_b;
+  logic signed [DataAddressWidth-1:0] s2_alu_a;
+  logic signed [CodeAddressWidth-1:0] s2_alu_b;
   logic                          s2_lj, s2_mem_wr, s2_io_wr, s2_io_rd;
   logic                          s2_do_jmp, s2_do_ret;
   logic [4:0]                    s2_lj_offset;
 
-  bf2_s2_decode_comb #(.DADDR_WIDTH(DADDR_WIDTH), .CADDR_WIDTH(CADDR_WIDTH),
-                        .DATA_WIDTH(DATA_WIDTH)) s2_comb (
+  bf2_s2_decode_comb #(.DataAddressWidth(DataAddressWidth), .CodeAddressWidth(CodeAddressWidth),
+                        .DataWidth(DataWidth)) s2_comb (
     .insn(id_insn), .maddr(maddr_r), .mem_din(mem_din_r),
     .lj(lj_r), .lj_offset(lj_offset_r), .pc(id_pc),
     .alu_a(s2_alu_a), .alu_b(s2_alu_b),
@@ -193,14 +193,14 @@ module bf2_pipeline_full #(
   );
 
   // ---- ID/EX registers ----
-  logic signed [DADDR_WIDTH-1:0] s2_alu_a_r;
-  logic signed [CADDR_WIDTH-1:0] s2_alu_b_r;
+  logic signed [DataAddressWidth-1:0] s2_alu_a_r;
+  logic signed [CodeAddressWidth-1:0] s2_alu_b_r;
   logic                          s2_lj_r, s2_mem_wr_r, s2_io_wr_r, s2_io_rd_r;
   logic                          s2_do_jmp_r, s2_do_ret_r;
   logic [4:0]                    s2_lj_offset_r;
-  logic [CADDR_WIDTH-1:0]        s2_pc_r;     // this instruction's pc
+  logic [CodeAddressWidth-1:0]        s2_pc_r;     // this instruction's pc
   logic [7:0]                    s2_insn_r;   // for S3 post-ALU decode
-  logic [DATA_WIDTH-1:0]         s2_io_din_r; // ',' writes IO data to DMEM
+  logic [DataWidth-1:0]         s2_io_din_r; // ',' writes IO data to DMEM
 
   always_ff @(posedge clk or negedge resetq) begin
     if (!resetq) begin
@@ -235,16 +235,16 @@ module bf2_pipeline_full #(
   // ======================================================================
   // S3: Execute (ALU + post-ALU datapath that consumes alu_c)
   // ======================================================================
-  logic [DADDR_WIDTH-1:0] s3_alu_c;
-  logic [CADDR_WIDTH-1:0] s3_pc_next;
-  logic [DEPTH-1:0]       s3_rsp_next;
+  logic [DataAddressWidth-1:0] s3_alu_c;
+  logic [CodeAddressWidth-1:0] s3_pc_next;
+  logic [Depth-1:0]       s3_rsp_next;
   logic                   s3_rstk_push, s3_rstk_pop;
-  logic [CADDR_WIDTH-1:0] s3_rstk_data;
-  logic [DADDR_WIDTH-1:0] s3_maddr_next;
-  logic [DATA_WIDTH-1:0]  s3_mem_dout;
+  logic [CodeAddressWidth-1:0] s3_rstk_data;
+  logic [DataAddressWidth-1:0] s3_maddr_next;
+  logic [DataWidth-1:0]  s3_mem_dout;
 
-  bf2_s3_execute_comb #(.DADDR_WIDTH(DADDR_WIDTH), .CADDR_WIDTH(CADDR_WIDTH),
-                         .DATA_WIDTH(DATA_WIDTH), .DEPTH(DEPTH)) s3_comb (
+  bf2_s3_execute_comb #(.DataAddressWidth(DataAddressWidth), .CodeAddressWidth(CodeAddressWidth),
+                         .DataWidth(DataWidth), .Depth(Depth)) s3_comb (
     .alu_a(s2_alu_a_r), .alu_b(s2_alu_b_r), .insn(s2_insn_r),
     .do_jmp(s2_do_jmp_r), .do_ret(s2_do_ret_r), .lj(s2_lj_r),
     .pj_result(pj_result), .pc(s2_pc_r), .maddr(maddr_r), .mem_din(mem_din_r),
@@ -255,13 +255,13 @@ module bf2_pipeline_full #(
   );
 
   // ---- EX/MEM registers ----
-  logic [DADDR_WIDTH-1:0] s3_alu_c_r;
-  logic [CADDR_WIDTH-1:0] s3_pc_next_r;
-  logic [DEPTH-1:0]       s3_rsp_next_r;
+  logic [DataAddressWidth-1:0] s3_alu_c_r;
+  logic [CodeAddressWidth-1:0] s3_pc_next_r;
+  logic [Depth-1:0]       s3_rsp_next_r;
   logic                   s3_rstk_push_r, s3_rstk_pop_r;
-  logic [CADDR_WIDTH-1:0] s3_rstk_data_r;
-  logic [DADDR_WIDTH-1:0] s3_maddr_next_r;
-  logic [DATA_WIDTH-1:0]  s3_mem_dout_r;
+  logic [CodeAddressWidth-1:0] s3_rstk_data_r;
+  logic [DataAddressWidth-1:0] s3_maddr_next_r;
+  logic [DataWidth-1:0]  s3_mem_dout_r;
   logic                   s3_mem_wr_r, s3_io_wr_r, s3_io_rd_r;
   logic                   s3_lj_r;
   logic [4:0]             s3_lj_offset_r;
@@ -301,9 +301,9 @@ module bf2_pipeline_full #(
   // ======================================================================
   // S4: Memory access + architectural register update
   // ======================================================================
-  logic [DATA_WIDTH-1:0] s4_mem_din;
+  logic [DataWidth-1:0] s4_mem_din;
 
-  bf2_bram_data #(.DADDR_WIDTH(DADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH)) dmem (
+  bf2_bram_data #(.DataAddressWidth(DataAddressWidth), .DataWidth(DataWidth)) dmem (
     .clk(clk), .we(s3_mem_wr_r), .addr(s3_maddr_next_r),
     .din(s3_mem_dout_r), .dout(s4_mem_din)
   );
@@ -311,8 +311,8 @@ module bf2_pipeline_full #(
   // Return stack: stack2 (head + tail shift register, registered read).
   // push: we=1 delta=01 (wd into head, old head shifts into tail)
   // pop : we=0 delta=11 (tail top becomes head, tail shifts up)
-  logic [CADDR_WIDTH-1:0] rst0;
-  bf2_stack2 #(.DEPTH(DEPTH), .WIDTH(CADDR_WIDTH)) rstack (
+  logic [CodeAddressWidth-1:0] rst0;
+  bf2_stack2 #(.Depth(Depth), .Width(CodeAddressWidth)) rstack (
     .clk(clk),
     .we(s3_rstk_push_r),
     .delta({s3_rstk_pop_r, s3_rstk_push_r | s3_rstk_pop_r}),
@@ -321,10 +321,10 @@ module bf2_pipeline_full #(
   );
 
   // ---- Architectural state registers ----
-  logic [CADDR_WIDTH-1:0] pc_r;
-  logic [DADDR_WIDTH-1:0] maddr_r;
-  logic [DATA_WIDTH-1:0]  mem_din_r;
-  logic [DEPTH-1:0]       rsp_r;
+  logic [CodeAddressWidth-1:0] pc_r;
+  logic [DataAddressWidth-1:0] maddr_r;
+  logic [DataWidth-1:0]  mem_din_r;
+  logic [Depth-1:0]       rsp_r;
   logic                   lj_r;
   logic [4:0]             lj_offset_r;
   logic                   pj_carry5_r;
@@ -332,7 +332,7 @@ module bf2_pipeline_full #(
 
   // Long-jump 2-cycle pipeline (timing model; state-machine alignment TODO)
   logic [5:0]             pj_low_sum;
-  logic [CADDR_WIDTH-1:0] pj_result;
+  logic [CodeAddressWidth-1:0] pj_result;
   assign pj_low_sum = pc_r[4:0] + id_insn[4:0];
   assign pj_result  = {pj_pc_high_r + id_insn + {7'b0, pj_carry5_r}, pj_low_sum[4:0]};
 
