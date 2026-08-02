@@ -10,8 +10,8 @@
 // - Push/pop semantics match BF1 usage exactly
 // ============================================================================
 module bf2_stack2 #(
-  parameter DEPTH = 16,
-  parameter WIDTH = 13
+  parameter int DEPTH = 16,
+  parameter int WIDTH = 13
 )(
   input  logic              clk,
   input  logic              we,       // push (write enable)
@@ -19,7 +19,7 @@ module bf2_stack2 #(
   output logic [WIDTH-1:0]  rd,       // top of stack (registered)
   input  logic [WIDTH-1:0]  wd        // push data
 );
-  localparam BITS = (WIDTH * DEPTH) - 1;
+  localparam int BITS = (WIDTH * DEPTH) - 1;
 
   logic move = delta[0];
   logic dir  = delta[1];  // 0=push (grow), 1=pop (shrink)

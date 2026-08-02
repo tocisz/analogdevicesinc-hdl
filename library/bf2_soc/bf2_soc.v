@@ -5,7 +5,7 @@
 // bf2_soc — Brainfuck CPU System-on-Chip Wrapper (bf2_phase core)
 // ==========================================================================
 // Drop-in replacement for bf1_soc with the IDENTICAL external interface
-// (clk_i, resetq, io_*, debug_*, ctrl_gp*), but the core is bf2_phase_full
+// (clk_i, resetq, io_*, debug_*, ctrl_gp*), but the core is bf2_phase
 // — the hazard-free 2-phase machine (phase A = fetch+decode+branch,
 // phase B = execute+writeback; one instruction per A+B pair).
 //
@@ -17,7 +17,7 @@
 //     10 ns period, and every register-to-register path is single-cycle,
 //     so the bf1 2-cycle multicycle constraints are GONE (bf2_phase's
 //     phase clouds are ~4 ns vs bf1's 12.5 ns ALU path).
-//   * Simplified reset: bf2_phase_full uses a synchronous, active-high
+//   * Simplified reset: bf2_phase uses a synchronous, active-high
 //     reset; the wrapper derives it from the async active-low resetq and
 //     the PS ctrl_reset pulse.  No separate core-level ctrl_reset_i.
 //   * No explicit prefetch cycle: pc_r is cleared by reset, so code_addr
@@ -63,11 +63,11 @@ module bf2_soc (
   // ==================================================================
   // Parameters
   // ==================================================================
-  localparam CODE_RAM_DEPTH = 8192;   // 8K × 8
-  localparam DATA_RAM_DEPTH = 32768;  // 32K × 8
+  localparam int CodeRamDepth = 8192;   // 8K × 8
+  localparam int DataRamDepth = 32768;  // 32K × 8
 
   // ==================================================================
-  // Internal signals — bf2_phase_full core connections
+  // Internal signals — bf2_phase core connections
   // ==================================================================
   wire [14:0] mem_addr;
   wire        mem_wr;
@@ -137,7 +137,7 @@ module bf2_soc (
 
   // ==================================================================
   // Phase controller — generates the alternating en_s12 / en_s34
-  // clock enables for bf2_phase_full.
+  // clock enables for bf2_phase.
   //
   //   phase_a_done: 0 → next cycle is phase A (fetch+decode)
   //                 1 → next cycle is phase B (execute+writeback)
@@ -185,12 +185,12 @@ module bf2_soc (
   // ==================================================================
 
   // ── Code RAM: 8K × 8, dual-port block RAM ──
-  (* ram_style = "block" *) reg [7:0] code_ram [0:CODE_RAM_DEPTH-1];
+  (* ram_style = "block" *) reg [7:0] code_ram [CodeRamDepth];
   reg [7:0] code_ra_dout;  // Port A registered output (instruction)
   reg [7:0] code_rb_dout;  // Port B registered output (PS read)
 
   // ── Data RAM: 32K × 8, dual-port block RAM ──
-  (* ram_style = "block" *) reg [7:0] data_ram [0:DATA_RAM_DEPTH-1];
+  (* ram_style = "block" *) reg [7:0] data_ram [DataRamDepth];
   reg [7:0] data_ra_dout;  // Port A registered output (CPU mem_din)
   reg [7:0] data_rb_dout;  // Port B registered output (PS read)
 
@@ -235,9 +235,9 @@ module bf2_soc (
   // Zero-initialize memories for simulation (synthesis infers INIT=0)
   integer _init_i_;
   initial begin
-    for (_init_i_ = 0; _init_i_ < CODE_RAM_DEPTH; _init_i_ = _init_i_ + 1)
+    for (_init_i_ = 0; _init_i_ < CodeRamDepth; _init_i_ = _init_i_ + 1)
       code_ram[_init_i_] = 8'h00;
-    for (_init_i_ = 0; _init_i_ < DATA_RAM_DEPTH; _init_i_ = _init_i_ + 1)
+    for (_init_i_ = 0; _init_i_ < DataRamDepth; _init_i_ = _init_i_ + 1)
       data_ram[_init_i_] = 8'h00;
   end
 
@@ -412,9 +412,9 @@ module bf2_soc (
 
 
   // ==================================================================
-  // bf2_phase_full core instantiation
+  // bf2_phase core instantiation
   // ==================================================================
-  bf2_phase_full #() bf2_inst (
+  bf2_phase #() bf2_inst (
     .clk(clk_i),
     .reset(cpu_reset),           // synchronous, active high (simplified)
     .en_s12(en_s12),             // phase A: fetch+decode commit

@@ -1,6 +1,6 @@
 // Verilator testbench for the bf2_phase core (2-phase FD | EX/WB machine).
 //
-// Ported from bf1_verilator.cpp to drive the 2-phase bf2_phase_full module.
+// Ported from bf1_verilator.cpp to drive the 2-phase bf2_phase module.
 //
 // Key differences from bf1:
 //   * Alternates en_s12 / en_s34 enables (Phase A = fetch+decode+branch,
@@ -14,7 +14,7 @@
 //   * Single synchronous active-high reset (reset), matching ARM ctrl_reset_i.
 //
 // Usage:
-//   obj_dir/Vbf2_phase_full prog.bin [input.txt] [+verbose] [+trace] [+maxsteps=N]
+//   obj_dir/Vbf2_phase prog.bin [input.txt] [+verbose] [+trace] [+maxsteps=N]
 //
 // +maxsteps=N stops after N *instructions* (i.e. 2*N phases) — needed for
 // programs that never fall off the end of the code (infinite loops).
@@ -27,7 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "Vbf2_phase_full.h"
+#include "Vbf2_phase.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
@@ -40,7 +40,7 @@
 
 using namespace std;
 
-void print(Vbf2_phase_full& top, unsigned long phase, const char* phase_name) {
+void print(Vbf2_phase& top, unsigned long phase, const char* phase_name) {
   cout << "phase=" << phase << " (" << phase_name << ")"
        << " insn=" << bitset<8>(top.insn)
        << " mem_din=" << bitset<DATA_WIDTH>(top.mem_din)
@@ -118,8 +118,8 @@ int main(int argc, char **argv, char **env) {
   if (maxsteps)
     cerr << "+maxsteps: stopping after " << maxsteps << " instructions" << endl;
 
-  // init top verilog instance (Vbf2_phase_full)
-  Vbf2_phase_full top;
+  // init top verilog instance (Vbf2_phase)
+  Vbf2_phase top;
   if (tfp) {
     top.trace(tfp, 99);
     tfp->open("bf2_phase.vcd");

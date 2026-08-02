@@ -22,7 +22,7 @@ include ../scripts/library.mk
 #   obj_dir/Vbf2_phase_full prog.bin [input.txt] [+verbose] [+trace] [+maxsteps=N]
 # All-in-one: make sim-verilator2 SIM_VER2_PROG=prog.bin SIM_VER2_INPUT=input.txt
 # ------------------------------------------------------------------
-SIM_VER2_TOP   := Vbf2_phase_full
+SIM_VER2_TOP   := Vbf2_phase
 SIM_VER2_SRC   := bf2_phase.sv bf2_comb.sv bf2_stack2.sv common.h
 SIM_VER2_CPP   := bf2_verilator.cpp
 SIM_VER2_BIN   := obj_dir/$(SIM_VER2_TOP)
@@ -37,7 +37,7 @@ sim-verilator2: verilator2-build verilator2-run
 verilator2-build: $(SIM_VER2_BIN)
 
 $(SIM_VER2_BIN): $(SIM_VER2_SRC) $(SIM_VER2_CPP)
-	verilator -Wall --trace --top-module bf2_phase_full --cc bf2_phase.sv bf2_comb.sv bf2_stack2.sv --exe $(SIM_VER2_CPP)
+	verilator -Wall --trace --top-module bf2_phase --cc bf2_phase.sv bf2_comb.sv bf2_stack2.sv --exe $(SIM_VER2_CPP)
 	make -C obj_dir -j -f $(SIM_VER2_TOP).mk $(SIM_VER2_TOP)
 
 verilator2-run: $(SIM_VER2_BIN)

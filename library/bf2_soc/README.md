@@ -13,7 +13,7 @@ The **functionally verified 2-phase pipeline** (`bf2_phase`) is the production c
 | File | Description |
 |------|-------------|
 | **`bf2_phase.sv`** | **Functionally verified 2-phase pipeline** (FD \| EX/WB) — drop-in replacement for BF1. Passes Verilator byte-comparison against `bf1.v` on `hello.bin`, `mandelbrot.bin`, `squares.bin`, `xmastree.bin`, `ghost.bin`. |
-| **`bf2_soc.v`** | **Production SoC wrapper** — drop-in replacement for `bf1_soc.v` (identical external interface) wrapping `bf2_phase_full`: generates alternating `en_s12`/`en_s34` clock enables, derives synchronous active-high reset from `resetq` + PS `ctrl_reset`, adds IO-stall via core's `io_rd_pending`/`io_wr_pending`, presents async-read DMEM model (registered BRAM + last-write bypass). |
+| **`bf2_soc.v`** | **Production SoC wrapper** — drop-in replacement for `bf1_soc.v` (identical external interface) wrapping `bf2_phase`: generates alternating `en_s12`/`en_s34` clock enables, derives synchronous active-high reset from `resetq` + PS `ctrl_reset`, adds IO-stall via core's `io_rd_pending`/`io_wr_pending`, presents async-read DMEM model (registered BRAM + last-write bypass). |
 | **`bf2_pipeline.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models. Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
 | **`bf2_2stage.sv`** | **2-stage pipeline** (FD \| EX/WB) with BRAM models. Alternative merged-boundary design. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
 
@@ -57,7 +57,7 @@ The **functionally verified 2-phase pipeline** (`bf2_phase`) is the production c
 
 ```bash
 cd hdl/library/bf2_soc
-make verilator2-build         # builds obj_dir/Vbf2_phase_full
+make verilator2-build         # builds obj_dir/Vbf2_phase
 make sim-verilator2 SIM_VER2_PROG=../../../demos/brainfuck_org/src/hello.bin
 ```
 
