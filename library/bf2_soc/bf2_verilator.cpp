@@ -1,24 +1,17 @@
-// Verilator testbench for the bf2_phase core (2-phase FD | EX/WB machine).
+// Verilator testbench for the bf2_phase core (overlapped FD | EX machine).
 //
-// Ported from bf1_verilator.cpp to drive the 2-phase bf2_phase module.
-//
-// Key differences from bf1:
-//   * Alternates en_s12 / en_s34 enables (Phase A = fetch+decode+branch,
-//     Phase B = execute+writeback).
-//   * Outputs are only sampled/acted upon after a Phase B edge (en_s34).
-//   * One instruction = two phases (A+B).  Per-cycle trace is printed at
-//     phase boundaries.
-//   * After reset deasserts, holds both enables low for ONE cycle to
-//     perform the instruction prefetch (code_addr = pc_r = 0 -> IMEM latches
-//     code_ram[0] for the first Phase A).
-//   * Single synchronous active-high reset (reset), matching ARM ctrl_reset_i.
+// Models the SoC memory contract:
+//   * Registered IMEM: insn presented this cycle is code[code_addr] latched
+//     at the previous posedge (1-cycle latency).
+//   * Registered DMEM read on a read-only port (read-first vs a same-cycle
+//     store on the write port). RAW bypass lives inside the core.
+//   * `enable` high to run, low to freeze (the SoC drops it on IO wait).
 //
 // Usage:
 //   obj_dir/Vbf2_phase prog.bin [input.txt] [+verbose] [+trace] [+maxsteps=N]
 //
-// +maxsteps=N stops after N *instructions* (i.e. 2*N phases) — needed for
-// programs that never fall off the end of the code (infinite loops).
-// Diagnostics go to stderr, so stdout is the pure program output.
+// +maxsteps=N stops after N *retired instructions*.
+// Diagnostics go to stderr; stdout is pure program output.
 
 #include <iostream>
 #include <fstream>
@@ -35,13 +28,13 @@
 #define DADDR_WIDTH 15
 #define DATA_WIDTH 8
 #define DEPTH 4
-#define MEMSIZE (1 << DADDR_WIDTH)   // 32K tape, matches SoC data RAM
-#define CODESIZE (1 << CADDR_WIDTH)  // 8K code, matches SoC code RAM
+#define MEMSIZE (1 << DADDR_WIDTH)
+#define CODESIZE (1 << CADDR_WIDTH)
 
 using namespace std;
 
-void print(Vbf2_phase& top, unsigned long phase, const char* phase_name) {
-  cout << "phase=" << phase << " (" << phase_name << ")"
+void print(Vbf2_phase& top, unsigned long cycle) {
+  cout << "cycle=" << cycle
        << " insn=" << bitset<8>(top.insn)
        << " mem_din=" << bitset<DATA_WIDTH>(top.mem_din)
        << " io_din=" << bitset<DATA_WIDTH>(top.io_din)
@@ -49,31 +42,38 @@ void print(Vbf2_phase& top, unsigned long phase, const char* phase_name) {
 
   cout << "  code_addr=" << bitset<CADDR_WIDTH>(top.code_addr)
        << " pc=" << bitset<CADDR_WIDTH>(top.pc_debug)
-       << " mem_addr=" << bitset<DADDR_WIDTH>(top.mem_addr)
+       << " mem_rd=" << bitset<DADDR_WIDTH>(top.mem_rd_addr)
+       << " mem_wr_addr=" << bitset<DADDR_WIDTH>(top.mem_wr_addr)
        << " rsp=" << bitset<DEPTH>(top._rsp);
 
-  if (top.mem_wr) {
+  if (top.mem_wr)
     cout << " mem_wr=1 mem_dout=" << bitset<DATA_WIDTH>(top.mem_dout);
-  } else {
+  else
     cout << " mem_wr=0";
-  }
   cout << endl;
 
   cout << "  io_wr=" << bitset<1>(top.io_wr)
-       << " io_rd=" << bitset<1>(top.io_rd);
-  if (top.io_wr) {
+       << " io_rd=" << bitset<1>(top.io_rd)
+       << " retiring=" << bitset<1>(top.retiring)
+       << " rd_pend=" << bitset<1>(top.io_rd_pending)
+       << " wr_pend=" << bitset<1>(top.io_wr_pending);
+  if (top.io_wr)
     cout << " io_dout=" << bitset<DATA_WIDTH>(top.io_dout)
          << " (" << (char)top.io_dout << ")";
-  }
   cout << endl;
 }
 
 char *code;
 streampos prog_size;
-
 unsigned char mem[MEMSIZE];
 bool verbose = false;
-unsigned long maxsteps = 0; // 0 = run until PC falls off the code
+unsigned long maxsteps = 0;
+
+static unsigned char code_at(int addr) {
+  if (addr < 0 || addr >= (int)prog_size)
+    return 0;
+  return (unsigned char)code[addr];
+}
 
 int main(int argc, char **argv, char **env) {
   if (argc <= 1) {
@@ -85,9 +85,8 @@ int main(int argc, char **argv, char **env) {
   const char *verboseParam = Verilated::commandArgsPlusMatch("verbose");
   verbose = verboseParam && verboseParam[0];
   if (verbose)
-    cerr << "+verbose: per-phase trace on stdout" << endl;
+    cerr << "+verbose: per-cycle trace on stdout" << endl;
 
-  // Optional input bytes for ',' — argv[2] unless it's a plusarg
   queue<unsigned char> inq;
   if (argc > 2 && argv[2][0] != '+') {
     ifstream in(argv[2], ios::in | ios::binary | ios::ate);
@@ -111,19 +110,17 @@ int main(int argc, char **argv, char **env) {
     tfp = new VerilatedVcdC;
   }
 
-  // optional step limit for non-terminating programs (counted in instructions)
   const char* maxstepsParam = Verilated::commandArgsPlusMatch("maxsteps=");
   if (maxstepsParam && maxstepsParam[0])
     maxsteps = strtoul(maxstepsParam + strlen("maxsteps=") + 1, NULL, 10);
   if (maxsteps)
     cerr << "+maxsteps: stopping after " << maxsteps << " instructions" << endl;
 
-  // init top verilog instance (Vbf2_phase)
   Vbf2_phase top;
   if (tfp) {
     top.trace(tfp, 99);
     tfp->open("bf2_phase.vcd");
-    cerr << "+trace: writing waves to bf2_phase.vcd (view with gtkwave bf2_phase.vcd)" << endl;
+    cerr << "+trace: writing waves to bf2_phase.vcd" << endl;
   }
 
   ifstream prog;
@@ -144,103 +141,107 @@ int main(int argc, char **argv, char **env) {
     return 1;
   }
 
-  // initialize simulation inputs
+  memset(mem, 0, sizeof(mem));
+
   top.reset = 1;
   top.clk = 0;
-  top.en_s12 = 0;
-  top.en_s34 = 0;
+  top.enable = 0;
+  top.insn = 0;
+  top.mem_din = 0;
+  top.io_din = 0;
   top.eval();
 
-  int code_addr = 0;
-  int mem_addr = 0;
   vluint64_t t = 0;
-
-  // Assert reset for ONE cycle, then release.  Hold both enables low for
-  // ONE cycle after reset releases to perform the instruction prefetch
-  // (code_addr = pc_r = 0 -> registered IMEM output latches code_ram[0]
-  // for the first Phase A).
-  top.reset = 1;
-  top.clk = 1;
-  top.eval();
-  if (tfp) tfp->dump(t++);
-  top.clk = 0;
-  top.eval();
-  if (tfp) tfp->dump(t++);
-
-  top.reset = 0;
-  top.clk = 1;
-  top.eval();
-  if (tfp) tfp->dump(t++);
-  top.clk = 0;
-  top.eval();
-  if (tfp) tfp->dump(t++);
-
-  unsigned long phase = 0;        // phase count (A=even, B=odd)
-  unsigned long instr_count = 0;  // instruction count (A+B pair = 1 instruction)
-  bool en_s12 = true;             // start with Phase A (fetch+decode)
-
-  do {
-    // Alternate enables: even phases = A (en_s12), odd phases = B (en_s34)
-    en_s12 = (phase % 2 == 0);
-    bool en_s34 = !en_s12;
-
-    top.en_s12 = en_s12 ? 1 : 0;
-    top.en_s34 = en_s34 ? 1 : 0;
-
-    // Write to CPU
-    top.insn = code[code_addr];
-    top.mem_din = mem[mem_addr];
-    // present next input byte if the current instruction is ','
-    top.io_din = ((top.insn >> 5) == 0x6) && !inq.empty() ? inq.front() : 0;
-
-    if (verbose)
-      print(top, phase, en_s12 ? "A(en_s12)" : "B(en_s34)");
-
-    // Negative edge
-    top.clk = 0;
+  auto half = [&](int clk) {
+    top.clk = clk;
     top.eval();
     if (tfp) tfp->dump(t++);
+  };
 
-    // Read from CPU
-    code_addr = top.code_addr;
-    mem_addr = top.mem_addr;
-    if (mem_addr < 0 || mem_addr >= MEMSIZE) {
-      cerr << "phase = " << phase << endl;
-      cerr << "Memory out of range " << mem_addr << endl;
+  // Reset pulse (posedge while reset=1)
+  half(1);
+  half(0);
+
+  // Release reset; idle one cycle with enable low so IMEM latches code[0]
+  top.reset = 0;
+  top.enable = 0;
+  top.insn = 0;
+  top.mem_din = 0;
+  half(1);
+  // Registered memories sample at this posedge: code_addr should be 0
+  unsigned char insn_r = code_at((int)top.code_addr);
+  unsigned char mem_din_r = 0; // mem all zeros
+  half(0);
+
+  unsigned long cycle = 0;
+  unsigned long instr_count = 0;
+  int drain = 0;
+  const int drain_limit = 4;
+
+  do {
+    // In a standalone TB without a UART feeding bytes, a `,` with an empty
+    // input queue gets 0 (same as bf_interpret.py with /dev/null stdin).
+    // Do NOT freeze; the SoC-only IO-stall is for the actual hardware where
+    // the PS must feed data before the CPU can proceed.
+    bool io_stall = false;
+    top.enable = 1;
+
+    top.insn = insn_r;
+    top.mem_din = mem_din_r;
+    top.io_din = (top.io_rd_pending && !inq.empty()) ? inq.front() : 0;
+    top.eval(); // settle comb with new enables/inputs
+
+    if (verbose)
+      print(top, cycle);
+
+    int code_addr = (int)top.code_addr;
+    int mem_rd = (int)top.mem_rd_addr;
+    int mem_wa = (int)top.mem_wr_addr;
+
+    if (mem_rd < 0 || mem_rd >= MEMSIZE || mem_wa < 0 || mem_wa >= MEMSIZE) {
+      cerr << "cycle = " << cycle << " Memory out of range rd=" << mem_rd
+           << " wr=" << mem_wa << endl;
       exit(2);
     }
 
-    // Only act on outputs at Phase B edge (en_s34 == 1 during this phase)
-    if (en_s34) {
-      if (top.mem_wr)
-        mem[mem_addr] = top.mem_dout;
-      if (top.io_rd && !inq.empty())
-        inq.pop(); // ',' consumed the presented byte
-      if (top.io_wr)
-        cout << (char)top.io_dout << flush;
-    }
+    // Read-first sample for the read port (before applying the store).
+    unsigned char rd_sample = mem[mem_rd];
 
-    if (verbose)
-      print(top, phase, en_s12 ? "A(en_s12)" : "B(en_s34)");
+    if (top.mem_wr)
+      mem[mem_wa] = (unsigned char)top.mem_dout;
+    if (top.io_rd && !inq.empty())
+      inq.pop();
+    if (top.io_wr)
+      cout << (char)top.io_dout << flush;
 
-    // Positive edge
-    top.clk = 1;
-    top.eval();
-    if (tfp) tfp->dump(t++);
-
-    // Instruction completes at the end of Phase B
-    if (en_s34) {
+    if (top.retiring) {
       ++instr_count;
       if (maxsteps && instr_count >= maxsteps) {
         cerr << endl << "Max steps reached (" << maxsteps << ")." << endl;
-        break;
+        // still finish the clock so state is consistent
       }
     }
 
-    ++phase;
-  } while (code_addr < prog_size && !Verilated::gotFinish());
+    // Posedge: core registers + BRAM output registers
+    half(1);
+    insn_r = code_at(code_addr);
+    mem_din_r = rd_sample;
+    half(0);
 
-  cerr << endl << "Executed " << instr_count << " instructions (" << phase << " phases)." << endl;
+    ++cycle;
+
+    if (maxsteps && instr_count >= maxsteps)
+      break;
+
+    if ((int)top.pc_debug >= (int)prog_size)
+      ++drain;
+    else
+      drain = 0;
+
+  } while (drain < drain_limit && !Verilated::gotFinish());
+
+  cerr << endl << "Executed " << instr_count << " instructions ("
+       << cycle << " cycles)." << endl;
   if (!inq.empty())
     cerr << "Unused input bytes: " << inq.size() << endl;
 

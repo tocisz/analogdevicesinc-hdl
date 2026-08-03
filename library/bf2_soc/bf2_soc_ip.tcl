@@ -9,7 +9,7 @@ adi_ip_files bf2_soc [list \
   "common.h" \
   "bf2_phase.sv" \
   "bf2_stack2.sv" \
-  "bf2_soc.v" \
+  "bf2_soc.sv" \
 ]
 
 adi_ip_properties_lite bf2_soc

@@ -5,34 +5,22 @@
 // bf2_soc — Brainfuck CPU System-on-Chip Wrapper (bf2_phase core)
 // ==========================================================================
 // Drop-in replacement for bf1_soc with the IDENTICAL external interface
-// (clk_i, resetq, io_*, debug_*, ctrl_gp*), but the core is bf2_phase
-// — the hazard-free 2-phase machine (phase A = fetch+decode+branch,
-// phase B = execute+writeback; one instruction per A+B pair).
+// (clk_i, resetq, io_*, debug_*, ctrl_gp*), but the core is bf2_phase —
+// an overlapped FD | EX machine (fetch+decode and execute in the same
+// cycle on consecutive instructions; ~1 IPC steady state).
 //
-// What changed vs bf1_soc:
-//   * Drive for 2 phases: the wrapper generates two alternating, mutually
-//     exclusive clock enables (en_s12 = phase A, en_s34 = phase B) instead
-//     of the single half-speed bf1_ce.  The cadence is the same — one
-//     instruction per 2 clock cycles — but each phase now gets a full
-//     10 ns period, and every register-to-register path is single-cycle,
-//     so the bf1 2-cycle multicycle constraints are GONE (bf2_phase's
-//     phase clouds are ~4 ns vs bf1's 12.5 ns ALU path).
-//   * Simplified reset: bf2_phase uses a synchronous, active-high
-//     reset; the wrapper derives it from the async active-low resetq and
-//     the PS ctrl_reset pulse.  No separate core-level ctrl_reset_i.
-//   * No explicit prefetch cycle: pc_r is cleared by reset, so code_addr
-//     = 0 while stopped and the registered IMEM output latches code_ram[0]
-//     before the CPU ever runs.  Code Port A reads every cycle (code_addr
-//     has no combinational dependence on insn, so no stall-freeze needed).
-//   * Async DMEM read model: the core reads mem_din combinationally in
-//     phase A (branch decision and `-`/`+` ALU operand).  The read-after-
-//     write bypass is owned by bf2_phase (the last-write forward), so this
-//     wrapper just feeds the raw registered data_ra_dout output to the
-//     core's mem_din port; it has no knowledge of the bypass.
-//   * IO stall: a stall is modelled by holding en_s34 low (nothing
-//     commits).  The wrapper decides using the CPU's registered
-//     io_rd_pending / io_wr_pending flags, so the ',' write and the '.'
-//     strobe never fire with stale data.
+// What the wrapper does:
+//   * Drives the core `enable` high when running, low on IO wait / halt.
+//     Internal bubbles (pointer-move / stack) are handled inside the core
+//     even while enable stays high.
+//   * Synchronous active-high cpu_reset from async resetq + PS ctrl_reset.
+//   * Registered IMEM: code_addr is the core's prefetch address; insn =
+//     code_ra_dout (1-cycle BRAM latency) — matches the core contract.
+//   * Simple dual-port DMEM for the CPU: Port A = read (mem_rd_addr),
+//     Port B = write (mem_wr_addr) while the core stores, else PS access.
+//     RAW bypass lives entirely in bf2_phase.
+//   * IO stall: freeze both enables while io_rd_pending && !rx_valid or
+//     io_wr_pending && !tx_ready.  Step mode completes on core `retiring`.
 // ==========================================================================
 
 module bf2_soc (
@@ -69,19 +57,23 @@ module bf2_soc (
   // ==================================================================
   // Internal signals — bf2_phase core connections
   // ==================================================================
-  wire [14:0] mem_addr;
+  wire [14:0] mem_rd_addr;
+  wire [14:0] mem_wr_addr;
   wire        mem_wr;
   wire [7:0]  mem_dout;
   wire        io_wr;
-  wire        io_rd;
+  /* verilator lint_off UNUSEDSIGNAL */
+  wire        io_rd;   // 1-cycle ',' strobe; RX handshake uses io_rd_pending
+  /* verilator lint_on UNUSEDSIGNAL */
   wire [7:0]  io_din;
   wire [7:0]  io_dout;
-  wire [12:0] code_addr;  // = pc_r (combinational) — drives BRAM fetch
+  wire [12:0] code_addr;
   wire [7:0]  insn;
   wire [12:0] pc;
   wire [3:0]  rsp;
-  wire        io_rd_pending;  // EX instruction is ',' (registered)
-  wire        io_wr_pending;  // EX instruction is '.' (registered)
+  wire        io_rd_pending;
+  wire        io_wr_pending;
+  wire        retiring;
 
   // ==================================================================
   // Control: halt / run / step / reset (same semantics as bf1_soc)
@@ -127,8 +119,8 @@ module bf2_soc (
       if (ctrl_step && halted) begin
         halted       <= 0;
         step_pending <= 1;
-      end else if (step_pending && en_s34) begin
-        // an instruction completes at the phase-B edge
+      end else if (step_pending && retiring) begin
+        // one architectural instruction committed
         halted       <= 1;
         step_pending <= 0;
       end
@@ -136,42 +128,28 @@ module bf2_soc (
   end
 
   // ==================================================================
-  // Phase controller — generates the alternating en_s12 / en_s34
-  // clock enables for bf2_phase.
-  //
-  //   phase_a_done: 0 → next cycle is phase A (fetch+decode)
-  //                 1 → next cycle is phase B (execute+writeback)
-  // A stall is modelled by holding both enables low for one or more
-  // cycles (phase_a_done stays 1, nothing commits).  The stall condition
-  // is evaluated from the REGISTERED io_rd_pending/io_wr_pending flags
-  // (committed at the phase-A edge), so it is known one cycle before the
-  // B-edge — the ',' write and '.' strobe therefore never fire with stale
-  // RX data / a busy TX.
+  // Pipe enable — high (nominal) when running, low on IO wait / halt.
   // ==================================================================
-  reg phase_a_done;
-
-  always @(posedge clk_i or negedge resetq) begin
-    if (!resetq)
-      phase_a_done <= 1'b0;
-    else if (ctrl_reset)
-      phase_a_done <= 1'b0;
-    else if (en_s12)
-      phase_a_done <= 1'b1;   // A committed -> need B next
-    else if (en_s34)
-      phase_a_done <= 1'b0;   // B committed -> need A next
-  end
-
   wire running = !halted;
 
-  // B-stall: hold phase B until ',' has RX data and '.' has TX space.
-  wire stall_b = phase_a_done &&
-                 ((io_rd_pending && !io_rx_valid) ||
-                  (io_wr_pending && !io_tx_ready));
+  // TX holdoff: io_tx_valid is registered (1-cycle late to uart_phy), and
+  // uart_phy only drops tx_ready the cycle AFTER it samples tx_start.  At
+  // ~1 IPC two consecutive '.' would both see tx_ready=1 and the second
+  // byte would be lost.  Stall one extra cycle after any io_wr fire so the
+  // busy flag is visible before the next '.' may retire.
+  reg tx_holdoff;
+  always @(posedge clk_i or negedge resetq) begin
+    if (!resetq)
+      tx_holdoff <= 1'b0;
+    else
+      tx_holdoff <= io_wr && !halted && !cpu_reset;
+  end
 
-  wire en_s12;
-  wire en_s34;
-  assign en_s12 = running && !phase_a_done;
-  assign en_s34 = running &&  phase_a_done && !stall_b;
+  wire io_stall =
+      (io_rd_pending && !io_rx_valid) ||
+      (io_wr_pending && (!io_tx_ready || tx_holdoff));
+
+  wire enable = running && !io_stall;
 
   // Simplified reset for the core: synchronous, active-high.
   wire cpu_reset = !resetq || ctrl_reset;
@@ -192,18 +170,17 @@ module bf2_soc (
   // ── Data RAM: 32K × 8, dual-port block RAM ──
   (* ram_style = "block" *) reg [7:0] data_ram [DataRamDepth];
   reg [7:0] data_ra_dout;  // Port A registered output (CPU mem_din)
-  reg [7:0] data_rb_dout;  // Port B registered output (PS read)
+  reg [7:0] data_rb_dout;  // Port B registered output (PS read / CPU write port)
 
   reg gp1_wr_d, gp1_rd_d;  // delayed ctrl_gp1_out[24:25]
   reg gp2_wr_d, gp2_rd_d;  // delayed ctrl_gp2_out[24:25]
 
   // ==================================================================
-  // BRAM Port A accesses — one always block per port (BRAM inference)
+  // BRAM Port A/B accesses — one always block per port (BRAM inference)
   // ==================================================================
 
   // ── Code RAM Port A: instruction fetch (read-only) ──
-  // Unconditional registered read: code_addr = pc_r has no combinational
-  // dependence on insn, so there is no loop to freeze during stalls.
+  // code_addr is the core prefetch address (no comb dependence on insn).
   always @(posedge clk_i) begin
     code_ra_dout <= code_ram[code_addr];
   end
@@ -215,21 +192,23 @@ module bf2_soc (
       code_ram[ctrl_gp2_out[12:0]] <= ctrl_gp2_out[23:16];
   end
 
-  // ── Data RAM Port A: CPU access (read/write, read-before-write) ──
-  // mem_wr is already gated by the CPU's phase (only asserted at phase-B
-  // edges); the !cpu_reset guard suppresses any write on the same edge as
-  // a PS-initiated reset (ex_mem_wr still holds its pre-reset value then).
+  // ── Data RAM Port A: CPU read (mem_rd_addr) ──
   always @(posedge clk_i) begin
-    data_ra_dout <= data_ram[mem_addr];
-    if (mem_wr && !cpu_reset)
-      data_ram[mem_addr] <= mem_dout;
+    data_ra_dout <= data_ram[mem_rd_addr];
   end
 
-  // ── Data RAM Port B: PS access (read/write) ──
+  // ── Data RAM Port B: CPU write when storing, else PS access ──
+  // Simple dual-port: CPU may read (A) and write (B) different addresses
+  // in the same cycle.  CPU store wins over a simultaneous PS access.
+  wire        cpu_dmem_wr = mem_wr && !cpu_reset;
+  wire [14:0] data_b_addr = cpu_dmem_wr ? mem_wr_addr : ctrl_gp1_out[14:0];
+  wire        data_b_we   = cpu_dmem_wr || (ctrl_gp1_out[24] && !gp1_wr_d);
+  wire [7:0]  data_b_din  = cpu_dmem_wr ? mem_dout : ctrl_gp1_out[23:16];
+
   always @(posedge clk_i) begin
-    data_rb_dout <= data_ram[ctrl_gp1_out[14:0]];
-    if (ctrl_gp1_out[24] && !gp1_wr_d)
-      data_ram[ctrl_gp1_out[14:0]] <= ctrl_gp1_out[23:16];
+    data_rb_dout <= data_ram[data_b_addr];
+    if (data_b_we)
+      data_ram[data_b_addr] <= data_b_din;
   end
 
   // Zero-initialize memories for simulation (synthesis infers INIT=0)
@@ -242,22 +221,9 @@ module bf2_soc (
   end
 
   // ==================================================================
-  // Instruction fetch
-  //
-  // code_addr (= pc_r) drives the BRAM fetch address; code_ra_dout is the
-  // registered output, so insn always holds the instruction that the NEXT
-  // phase-A cycle decodes (the fetch happens during the previous phase-B
-  // cycle).  No intermediate register — bf2_phase expects a registered
-  // IMEM output (same alignment as bf1_soc).
+  // Instruction fetch — registered BRAM output feeds the core
   // ==================================================================
   assign insn = code_ra_dout;
-
-
-  // ==================================================================
-  // Data RAM read: the CPU's read-after-write bypass is owned by the
-  // bf2_phase core (see bf2_phase.sv).  This wrapper just feeds the raw
-  // registered BRAM read to the core's mem_din port.
-  // ==================================================================
 
   // ==================================================================
   // IO Bridge
@@ -267,10 +233,8 @@ module bf2_soc (
   reg [7:0] io_tx_data_int;
   reg       io_tx_valid_int;
 
-  // TX strobe: single-cycle pulse on io_wr (like bf1_soc).  io_wr is only
-  // asserted during a phase-B cycle (en_s34=1), and en_s34 is held low
-  // while io_wr_pending && !io_tx_ready, so the strobe always fires into
-  // an idle uart_phy.
+  // TX strobe: single-cycle pulse on io_wr.  en_pipe is held low while
+  // io_wr_pending && !io_tx_ready, so the strobe always fires into idle TX.
   always @(posedge clk_i or negedge resetq) begin
     if (!resetq) begin
       io_tx_data_int  <= 0;
@@ -287,19 +251,8 @@ module bf2_soc (
   assign io_tx_data  = io_tx_data_int;
   assign io_tx_valid = io_tx_valid_int;
 
-  // RX accept handshake for uart_phy's holding-register FIFO.
-  //
-  // Accept must be:
-  //   - high while the CPU waits at ',' with no data yet (else deadlock:
-  //     uart_phy only presents a byte while rx_accept_i=1),
-  //   - high on the phase-B edge of ',' so the phy consumes the presented
-  //     byte at the exact edge the CPU captures io_din (no double-read),
-  //   - low otherwise (byte held, not discarded).
-  // io_rd_pending is registered at the phase-A edge, so during the B-wait
-  // it reliably indicates the instruction in EX is a ','.  The !cpu_reset
-  // guard keeps the phy from consuming a byte on the same edge as a
-  // PS-initiated reset (the CPU is not capturing then).
-  assign io_rx_ready = io_rd_pending && !halted && phase_a_done && !cpu_reset;
+  // RX accept: high while EX holds ',' so uart_phy can present/consume a byte.
+  assign io_rx_ready = io_rd_pending && !halted && !cpu_reset;
 
 
   // ==================================================================
@@ -330,12 +283,9 @@ module bf2_soc (
       gp1_wr_d <= ctrl_gp1_out[24];
       gp1_rd_d <= ctrl_gp1_out[25];
 
-      // Write edge — BRAM write happens in the reset-free block
       if (ctrl_gp1_out[24] && !gp1_wr_d)
         data_ram_done <= 1;
 
-      // Read edge — data_rb_dout has 1-cycle BRAM latency, so capture
-      // the value on the NEXT cycle after RD goes high
       if (ctrl_gp1_out[25] && !gp1_rd_d)
         data_ram_rd_pending <= 1;
       else if (data_ram_rd_pending) begin
@@ -344,7 +294,6 @@ module bf2_soc (
         data_ram_rd_pending <= 0;
       end
 
-      // Clear DONE when PS clears both WR and RD
       if (!ctrl_gp1_out[24] && !ctrl_gp1_out[25]) begin
         data_ram_done <= 0;
         data_ram_rd_pending <= 0;
@@ -365,12 +314,9 @@ module bf2_soc (
       gp2_wr_d <= ctrl_gp2_out[24];
       gp2_rd_d <= ctrl_gp2_out[25];
 
-      // Write edge — BRAM write happens in the reset-free block
       if (ctrl_gp2_out[24] && !gp2_wr_d)
         code_ram_done <= 1;
 
-      // Read edge — code_rb_dout has 1-cycle BRAM latency, so capture
-      // the value on the NEXT cycle after RD goes high
       if (ctrl_gp2_out[25] && !gp2_rd_d)
         code_ram_rd_pending <= 1;
       else if (code_ram_rd_pending) begin
@@ -379,7 +325,6 @@ module bf2_soc (
         code_ram_rd_pending <= 0;
       end
 
-      // Clear DONE when PS clears both WR and RD
       if (!ctrl_gp2_out[24] && !ctrl_gp2_out[25]) begin
         code_ram_done <= 0;
         code_ram_rd_pending <= 0;
@@ -416,10 +361,10 @@ module bf2_soc (
   // ==================================================================
   bf2_phase #() bf2_inst (
     .clk(clk_i),
-    .reset(cpu_reset),           // synchronous, active high (simplified)
-    .en_s12(en_s12),             // phase A: fetch+decode commit
-    .en_s34(en_s34),             // phase B: execute+writeback commit
-    .mem_addr(mem_addr),
+    .reset(cpu_reset),
+    .enable(enable),
+    .mem_rd_addr(mem_rd_addr),
+    .mem_wr_addr(mem_wr_addr),
     .mem_wr(mem_wr),
     .mem_dout(mem_dout),
     .mem_din(data_ra_dout),
@@ -432,7 +377,8 @@ module bf2_soc (
     ._rsp(rsp),
     .pc_debug(pc),
     .io_rd_pending(io_rd_pending),
-    .io_wr_pending(io_wr_pending)
+    .io_wr_pending(io_wr_pending),
+    .retiring(retiring)
   );
 
 endmodule

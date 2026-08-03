@@ -2,7 +2,7 @@
 
 This directory contains the **BF2 pipeline variants** (2-phase, 4-stage, 2-stage) and comprehensive timing analysis for the Brainfuck CPU on Xilinx Artix-7 / Zynq-7000 (xc7z010clg400-1).
 
-The **functionally verified 2-phase pipeline** (`bf2_phase`) is the production core, packaged as the `bf2_soc` IP (VLNV: `analog.com:user:bf2_soc:1.0`) — a drop-in replacement for `bf1_soc` with identical external interface.
+The **functionally verified overlapped FD|EX core** (`bf2_phase`) is the production core, packaged as the `bf2_soc` IP (VLNV: `analog.com:user:bf2_soc:1.0`) — a drop-in replacement for `bf1_soc` with identical external interface. Steady-state CPI ≈ 1.2–1.5 (was 2.0 with the older mutually exclusive A/B schedule).
 
 ---
 
@@ -12,8 +12,8 @@ The **functionally verified 2-phase pipeline** (`bf2_phase`) is the production c
 
 | File | Description |
 |------|-------------|
-| **`bf2_phase.sv`** | **Functionally verified 2-phase pipeline** (FD \| EX/WB) — drop-in replacement for BF1. Passes Verilator byte-comparison against `bf1.v` on `hello.bin`, `mandelbrot.bin`, `squares.bin`, `xmastree.bin`, `ghost.bin`. |
-| **`bf2_soc.v`** | **Production SoC wrapper** — drop-in replacement for `bf1_soc.v` (identical external interface) wrapping `bf2_phase`: generates alternating `en_s12`/`en_s34` clock enables, derives synchronous active-high reset from `resetq` + PS `ctrl_reset`, adds IO-stall via core's `io_rd_pending`/`io_wr_pending`, presents async-read DMEM model (registered BRAM + last-write bypass). |
+| **`bf2_phase.sv`** | **Overlapped FD\|EX core** — drop-in replacement for BF1. Both clouds run every cycle; cell forward + ptr/stack bubbles. Passes Verilator byte-comparison vs the old 2-phase on the demo suite. |
+| **`bf2_soc.sv`** | **Production SoC wrapper** — drop-in for `bf1_soc.sv`. Drives the core `enable` high while running, low on IO wait, simple dual-port DMEM (CPU read A / write B), step completes on core `retiring`. |
 | **`bf2_pipeline.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models. Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
 | **`bf2_2stage.sv`** | **2-stage pipeline** (FD \| EX/WB) with BRAM models. Alternative merged-boundary design. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
 
@@ -29,7 +29,7 @@ The **functionally verified 2-phase pipeline** (`bf2_phase`) is the production c
 
 | File | Description |
 |------|-------------|
-| **`bf2_verilator.cpp`** | C++ Verilator testbench for `bf2_phase` (2-phase pipeline). Alternates `en_s12` / `en_s34` enables; samples outputs only after Phase B. |
+| **`bf2_verilator.cpp`** | C++ Verilator testbench for `bf2_phase`. Models registered IMEM/DMEM; drives both enables together; counts retired instructions. |
 
 ### Build & Timing Scripts
 
@@ -91,7 +91,8 @@ make synth-comb
 ## Pipeline Architecture Notes
 
 ### BF2 Phase (2-Phase, Functionally Verified)
-- Same logical split as 2-stage but driven by external `en_s12` / `en_s34`
+- Same logical split as 2-stage, driven by a single external `enable`
+  (1 = run, 0 = freeze for IO wait)
 - Alternating enables simulate 2-cycle-per-instruction execution
 - No hazard logic needed (branch resolved in decode, async DMEM read)
 - Verified byte-for-byte against BF1 on all test programs
@@ -126,7 +127,8 @@ make synth-comb
 
 ## BF2 SoC (`bf2_soc.v`) — Board Integration
 
-- **Drive for 2 phases**: the wrapper's phase controller toggles `phase_a_done` and asserts `en_s12` (phase A) / `en_s34` (phase B) on alternate cycles — one instruction per 2 clock cycles, the same cadence as the old `bf1_ce` half-speed clocking.
+- **Drive**: the wrapper drives the core `enable` high while running, low
+  on IO wait / halt.
 - **IO stall** = hold both enables low (nothing commits): the wrapper evaluates `io_rd_pending` / `io_wr_pending` (registered at the phase-A edge) against `io_rx_valid` / `io_tx_ready`, so `','` writes and `'.'` strobes never fire with stale data or a busy TX.
 - **Simplified reset**: `reset` for the core is synchronous active-high, derived as `!resetq || ctrl_reset`.
 - **Async DMEM read**: `bf2_phase` reads `mem_din` combinationally in phase A; the data-BRAM registered output is aligned by construction (phase-B read address = next phase-A address) and the last-write bypass covers read-after-write.

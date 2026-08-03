@@ -4,7 +4,7 @@ GENERIC_DEPS += common.h
 GENERIC_DEPS += bf2_stack2.sv
 GENERIC_DEPS += bf2_comb.sv
 GENERIC_DEPS += bf2_phase.sv
-GENERIC_DEPS += bf2_soc.v
+GENERIC_DEPS += bf2_soc.sv
 GENERIC_DEPS += bf2_pipeline.sv
 GENERIC_DEPS += bf2_r2r.sv
 
@@ -13,9 +13,9 @@ XILINX_DEPS += bf2_soc_ip.tcl
 include ../scripts/library.mk
 
 # ------------------------------------------------------------------
-# Verilator simulation for bf2_phase (2-phase FD | EX/WB machine)
-# Alternates en_s12 / en_s34 enables; outputs sampled at Phase B edge.
-# One instruction = two phases (A+B).
+# Verilator simulation for bf2_phase (overlapped FD | EX/WB machine)
+# Drives the single `enable` (1 = run, 0 = IO freeze); pointer-move/stack
+# bubbles are handled inside the core. ~1 IPC steady state.
 #
 # Usage:
 #   make verilator2-build
