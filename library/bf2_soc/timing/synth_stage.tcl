@@ -1,27 +1,29 @@
 # ============================================================================
 # Synthesis Script for BF2 Pipeline Stage Timing Analysis
 # ============================================================================
+# Targets the ARCHIVED registered 4-stage modules (archive_4stage/bf2.sv).
+# Kept for historical comparison; the current timing models are the
+# combinational cores (bf2_*_comb) and R2R wrappers (bf2_*_r2r).
 # Usage:
-#   vivado -mode batch -source synth_stage.tcl -tclargs <stage_name>
+#   vivado -mode batch -source timing/synth_stage.tcl -tclargs <stage_name>
 #   stage_name: s1_fetch | s2_decode | s3_execute | s4_writeback | longjump | all
-#
-# Output: ./synth_<stage>/reports/timing_<stage>.rpt
 # ============================================================================
 
 set stage_name [lindex $argv 0]
 if {$stage_name == ""} { set stage_name "all" }
 
-set src_dir [file normalize [file dirname [info script]]]
-set work_dir [file join $src_dir "synth_${stage_name}"]
+set src_dir [file normalize [file dirname [info script]]]   ;# .../bf2_soc/timing
+set top_dir [file dirname $src_dir]                          ;# .../bf2_soc
+set work_dir [file join $top_dir "synth_${stage_name}"]
 file mkdir $work_dir
 file mkdir [file join $work_dir "reports"]
 
 # Common sources
-set common_h [file join $src_dir "common.h"]
-set bf2_v    [file join $src_dir "bf2.sv"]
+set common_h [file join $top_dir "common.h"]
+set bf2_v    [file join $top_dir "archive_4stage" "bf2.sv"]
 
 proc synth_stage {stage top_module} {
-    global work_dir src_dir
+    global work_dir
     set stage_dir [file join $work_dir $stage]
     file mkdir $stage_dir
     file mkdir [file join $stage_dir "reports"]
@@ -67,9 +69,6 @@ proc synth_stage {stage top_module} {
 
     # Resource utilization
     report_utilization -hierarchical -file [file join $::work_dir "reports/util_${stage}.rpt"]
-
-    # Power (optional)
-    # report_power -file [file join $::work_dir "reports/power_${stage}.rpt"]
 
     close_project
 }

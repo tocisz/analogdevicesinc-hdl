@@ -1,17 +1,21 @@
 `include "common.h"
-`default_nettype wire
 
 // ============================================================================
 // Stack2: LIFO Stack for Return Addresses (push/pop/top interface)
 // ============================================================================
 // Replaces the random-access stack.v with a proper call stack:
 // - 1-cycle read latency (registered output)
-// - 4x smaller (Depth×Width vs 2^Depth×Width)
+// - shift-register sized (2^Depth x Width) vs a 2^(2^Depth) RAM
 // - Push/pop semantics match BF1 usage exactly
+//
+// Depth is the stack-pointer width in BITS (log2 of the number of entries):
+//   capacity       = 2^Depth entries  (head + tail)
+//   tail words     = 2^Depth - 1      (everything under the head)
+// Defaults come from common.h (`DEPTH = 4 -> 16 entries, `CADDR_WIDTH).
 // ============================================================================
 module bf2_stack2 #(
-  parameter int Depth = 16,
-  parameter int Width = 13
+  parameter int Depth = `DEPTH,     // stack-pointer width in bits (== log2 entries)
+  parameter int Width = `CADDR_WIDTH // return-address width (== CodeAddressWidth)
 )(
   input  logic              clk,
   input  logic              we,       // push (write enable)
@@ -19,7 +23,9 @@ module bf2_stack2 #(
   output logic [Width-1:0]  rd,       // top of stack (registered)
   input  logic [Width-1:0]  wd        // push data
 );
-  localparam int Bits = (Width * Depth) - 1;
+  // stack capacity = 2^Depth; tail holds all entries under the head.
+  localparam int Entries = (1 << Depth) - 1;   // words in the tail shift register
+  localparam int Bits = (Width * Entries) - 1;
 
   logic move = delta[0];
   logic dir  = delta[1];  // 0=push (grow), 1=pop (shrink)

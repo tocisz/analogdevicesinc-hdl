@@ -1,5 +1,4 @@
 `include "common.h"
-`default_nettype wire
 
 // ============================================================================
 // BF2: 4-Stage Pipeline with BRAM + Stack2 (LIFO return stack)
@@ -33,106 +32,19 @@
 // functional pass against the BF1 golden model.
 // ============================================================================
 
-/* verilator lint_off DECLFILENAME */
 /* verilator lint_off MULTITOP */
 /* verilator lint_off UNUSEDSIGNAL */
 /* verilator lint_off MULTIDRIVEN */
 /* verilator lint_off WIDTHEXPAND */
 
-// ---------------------------------------------------------------------------
-// Simple BRAM Model (for instruction memory)
-// ---------------------------------------------------------------------------
-module bf2_bram_icode #(
-  parameter CodeAddressWidth = 13,
-  parameter Depth = 13
-)(
-  input  logic                    clk,
-  input  logic [CodeAddressWidth-1:0]  addr,
-  output logic [7:0]              dout
-);
-  (* ram_style = "block" *) logic [7:0] mem [0:(1<<Depth)-1];
-
-  initial begin
-    integer i;
-    for (i = 0; i < (1<<Depth); i++) mem[i] = 8'h00;
-  end
-
-  always_ff @(posedge clk) dout <= mem[addr];
-endmodule
-
-
-// ---------------------------------------------------------------------------
-// Simple BRAM Model (for data memory)
-// ---------------------------------------------------------------------------
-module bf2_bram_data #(
-  parameter DataAddressWidth = 15,
-  parameter DataWidth  = 8,
-  parameter Depth       = 15
-)(
-  input  logic                    clk,
-  input  logic                    we,
-  input  logic [DataAddressWidth-1:0]  addr,
-  input  logic [DataWidth-1:0]   din,
-  output logic [DataWidth-1:0]   dout
-);
-  (* ram_style = "block" *) logic [DataWidth-1:0] mem [0:(1<<Depth)-1];
-
-  initial begin
-    integer i;
-    for (i = 0; i < (1<<Depth); i++) mem[i] = '0;
-  end
-
-  always_ff @(posedge clk) begin
-    if (we) mem[addr] <= din;
-    dout <= mem[addr];
-  end
-endmodule
-
-
-// ---------------------------------------------------------------------------
-// Stage 1: Instruction Fetch WITH IMEM
-// ---------------------------------------------------------------------------
-// Measures: PC register -> IMEM addr -> IMEM read -> insn register
-// ---------------------------------------------------------------------------
-module bf2_s1_fetch_with_imem #(
-  parameter CodeAddressWidth = 13
-)(
-  input  logic                    clk,
-  input  logic                    resetq,
-  input  logic                    cpu_active,
-  output logic [CodeAddressWidth-1:0]  code_addr,
-  output logic [7:0]              insn,
-  output logic [CodeAddressWidth-1:0]  pc_next
-);
-
-  logic [CodeAddressWidth-1:0] pc_r;
-
-  // IMEM
-  bf2_bram_icode #(.CodeAddressWidth(CodeAddressWidth)) imem_inst (
-    .clk(clk), .addr(code_addr), .dout(insn)
-  );
-
-  always_ff @(posedge clk or negedge resetq) begin
-    if (!resetq) begin
-      pc_r <= '0;
-    end else if (cpu_active) begin
-      pc_r <= pc_next;
-    end
-  end
-
-  assign code_addr = pc_r;
-  assign pc_next   = pc_r + 1'b1;
-endmodule
-
-
 // ============================================================================
 // Full Pipeline (4-stage) with Memory for End-to-End Timing
 // ============================================================================
 module bf2_pipeline_full #(
-  parameter CodeAddressWidth = 13,
-  parameter DataAddressWidth = 15,
-  parameter DataWidth  = 8,
-  parameter Depth       = 4
+  parameter int CodeAddressWidth = `CADDR_WIDTH,
+  parameter int DataAddressWidth = `DADDR_WIDTH,
+  parameter int DataWidth  = `DATA_WIDTH,
+  parameter int Depth       = `DEPTH
 )(
   input  logic                    clk,
   input  logic                    resetq,

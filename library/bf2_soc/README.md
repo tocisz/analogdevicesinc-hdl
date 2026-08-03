@@ -12,18 +12,19 @@ The **functionally verified overlapped FD|EX core** (`bf2_phase`) is the product
 
 | File | Description |
 |------|-------------|
-| **`bf2_phase.sv`** | **Overlapped FD\|EX core** — drop-in replacement for BF1. Both clouds run every cycle; cell forward + ptr/stack bubbles. Passes Verilator byte-comparison vs the old 2-phase on the demo suite. |
-| **`bf2_soc.sv`** | **Production SoC wrapper** — drop-in for `bf1_soc.sv`. Drives the core `enable` high while running, low on IO wait, simple dual-port DMEM (CPU read A / write B), step completes on core `retiring`. |
-| **`bf2_pipeline.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models. Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
-| **`bf2_2stage.sv`** | **2-stage pipeline** (FD \| EX/WB) with BRAM models. Alternative merged-boundary design. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
+| **`bf2_phase.sv`** | **Overlapped FD\|EX core** — drop-in replacement for BF1. Both phases run every cycle; cell forward + ptr/stack bubbles. Passes Verilator byte-comparison vs the old 2-phase on the demo suite. Includes `common.h` and instantiates `bf2_s12_comb`, `bf2_s34_comb`, `bf2_stack2`. |
+| **`bf2_s12_comb.sv`** / **`bf2_s34_comb.sv`** | Functional combinational blocks folded into `bf2_phase` (FD/EX-A and EX-B/WB phase clouds), split into their own files. Part of the simulated `bf2_phase` machine. |
+| **`bf2_soc.sv`** | **Production SoC wrapper** — drop-in for `bf1_soc.sv`. Drives the core `enable` high while running, low on IO wait, simple dual-port DMEM (CPU read A / write B), step completes on core `retiring`. Keeps its own strict `default_nettype none`; does **not** include `common.h`. |
+| **`timing/bf2_pipeline_full.sv`** | **4-stage pipeline** (Fetch → Decode → Execute → Mem/WB) with BRAM models (`timing/bf2_bram_icode.sv`, `timing/bf2_bram_data.sv`, `timing/bf2_s1_fetch_with_imem.sv`). Timing model only (not functionally verified). WNS +6.445 ns @ 100 MHz, max ~281 MHz. |
+| **`timing/bf2_2stage`** | 2-stage pipeline (FD \| EX/WB) timing experiment, kept in `archive_4stage/`. WNS +5.293 ns @ 100 MHz, max ~212 MHz, **half the FFs** of 4-stage (78 vs 137). |
 
 ### Combinational / Timing Analysis Modules
 
 | File | Description |
 |------|-------------|
-| **`bf2_comb.sv`** | Pure combinational cores for each stage (`bf2_s1_fetch_comb`, `bf2_s2_decode_comb`, `bf2_s3_execute_comb`, `bf2_s4_writeback_comb`, `bf2_alu_comb`, `bf2_longjump_pipeline_comb`, `bf2_stack2_comb`). Used for pin-to-pin delay measurement. |
-| **`bf2_r2r.sv`** | **Register-to-register (R2R) wrappers** — each combinational core wrapped in input/output FFs (`bf2_s1_fetch_r2r`, `bf2_s2_decode_r2r`, `bf2_s3_execute_r2r`, `bf2_s4_writeback_r2r`, `bf2_longjump_r2r`, `bf2_alu_r2r`, `bf2_stack2_r2r`). Measures **true internal stage delay** (no IBUF/OBUF). |
-| **`bf2_stack2.sv`** | Shift-register LIFO stack (head + tail) replacing the original RAM-based `stack.v`. Registered read (`rd = head`) removes combinational read mux from critical path. **3× fewer LUTs**, slightly more FFs. |
+| **`timing/bf2_*_comb.sv`** | One file per combinational core (`bf2_s1_fetch_comb`, `bf2_s2_decode_comb`, `bf2_s3_execute_comb`, `bf2_s4_writeback_comb`, `bf2_alu_comb`, `bf2_longjump_pipeline_comb`, `bf2_stack`, `bf2_stack2_comb`). Used for pin-to-pin delay measurement. |
+| **`timing/bf2_*_r2r.sv`** | **Register-to-register (R2R) wrappers** — each combinational core wrapped in input/output FFs (`bf2_s1_fetch_r2r`, `bf2_s2_decode_r2r`, `bf2_s3_execute_r2r`, `bf2_s4_writeback_r2r`, `bf2_longjump_r2r`, `bf2_alu_r2r`, `bf2_stack2_r2r`). Measures **true internal stage delay** (no IBUF/OBUF). |
+| **`bf2_stack2.sv`** | Shift-register LIFO stack (head + tail) replacing the original RAM-based `stack.v`. Registered read (`rd = head`) removes combinational read mux from critical path. **3× fewer LUTs**, slightly more FFs. Instantiated by `bf2_phase` and by the timing modules. |
 
 ### Testbench & Verification
 
@@ -35,11 +36,12 @@ The **functionally verified overlapped FD|EX core** (`bf2_phase`) is the product
 
 | File | Description |
 |------|-------------|
-| **`Makefile`** | Targets: `verilator2-build`, `verilator2-run`, `sim-verilator2`, `synth-comb`, `synth-r2r`, `synth-pipeline`, `synth-2stage`. |
-| **`synth_comb.tcl`** | Vivado script: synthesize combinational cores from `bf2_comb.sv` (pin-to-pin delay). |
-| **`synth_r2r.tcl`** | Vivado script: synthesize R2R wrappers from `bf2_r2r.sv` (true internal delay). |
-| **`synth_pipeline_full.tcl`** | Vivado script: synthesize full 4-stage pipeline `bf2_pipeline_full`. |
-| **`synth_stage.tcl`** | Vivado script: synthesize registered stage modules (from archive). |
+| **`common.h`** | Shared header: `` `timescale 1ns/1ps `` and `` `default_nettype wire ``, plus width/depth macros (`` `CADDR_WIDTH ``, `` `DADDR_WIDTH ``, `` `DATA_WIDTH ``, `DEPTH`). Included by every module (except `bf2_soc.sv`); parameter defaults are taken from these macros. |
+| **`Makefile`** | Targets: `verilator2-build`, `verilator2-run`, `sim-verilator2`, `synth-comb`, `synth-r2r`, `synth-pipeline`. |
+| **`timing/synth_comb.tcl`** | Vivado script: synthesize the combinational cores (`timing/bf2_*_comb.sv`, pin-to-pin delay). |
+| **`timing/synth_r2r.tcl`** | Vivado script: synthesize R2R wrappers (`timing/bf2_*_r2r.sv`, true internal delay). |
+| **`timing/synth_pipeline_full.tcl`** | Vivado script: synthesize the full 4-stage pipeline `bf2_pipeline_full`. |
+| **`timing/synth_stage.tcl`** | Vivado script: synthesize a registered stage module (from `archive_4stage/`). |
 
 ### Documentation & Archive
 

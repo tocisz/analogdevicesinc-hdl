@@ -7,6 +7,8 @@ source $ad_hdl_dir/library/scripts/adi_ip_xilinx.tcl
 adi_ip_create bf2_soc
 adi_ip_files bf2_soc [list \
   "common.h" \
+  "bf2_s12_comb.sv" \
+  "bf2_s34_comb.sv" \
   "bf2_phase.sv" \
   "bf2_stack2.sv" \
   "bf2_soc.sv" \

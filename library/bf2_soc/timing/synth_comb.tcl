@@ -1,24 +1,37 @@
 # ============================================================================
 # Synthesis Script for BF2 Combinational Stage Timing Analysis
 # ============================================================================
-# Measures the critical path through combinational logic of each stage
+# Measures the critical path through combinational logic of each stage.
+# The combinational stage cores live here (timing/), one module per file.
 # Usage:
-#   vivado -mode batch -source synth_comb.tcl -tclargs <stage_name>
+#   vivado -mode batch -source timing/synth_comb.tcl -tclargs <stage_name>
 #   stage_name: s1_fetch | s2_decode | s3_execute | s4_writeback | longjump | alu | stack | all
 # ============================================================================
 
 set stage_name [lindex $argv 0]
 if {$stage_name == ""} { set stage_name "all" }
 
-set src_dir [file normalize [file dirname [info script]]]
-set work_dir [file join $src_dir "synth_${stage_name}_comb"]
+set src_dir [file normalize [file dirname [info script]]]   ;# .../bf2_soc/timing
+set top_dir [file dirname $src_dir]                          ;# .../bf2_soc
+set work_dir [file join $top_dir "synth_${stage_name}_comb"]
 file mkdir $work_dir
 file mkdir [file join $work_dir "reports"]
 
-set comb_v [file join $src_dir "bf2_comb.sv"]
+# Combinational stage cores (one module per file) + the shared header.
+set comb_src [list \
+  [file join $src_dir "bf2_s1_fetch_comb.sv"] \
+  [file join $src_dir "bf2_s2_decode_comb.sv"] \
+  [file join $src_dir "bf2_s3_execute_comb.sv"] \
+  [file join $src_dir "bf2_s4_writeback_comb.sv"] \
+  [file join $src_dir "bf2_longjump_pipeline_comb.sv"] \
+  [file join $src_dir "bf2_alu_comb.sv"] \
+  [file join $src_dir "bf2_stack.sv"] \
+  [file join $src_dir "bf2_stack2_comb.sv"] \
+  [file join $top_dir "common.h"] \
+]
 
 proc synth_comb_stage {stage top_module} {
-    global work_dir src_dir comb_v
+    global work_dir comb_src
     set stage_dir [file join $work_dir $stage]
     file mkdir $stage_dir
     file mkdir [file join $stage_dir "reports"]
@@ -28,8 +41,8 @@ proc synth_comb_stage {stage top_module} {
     # Create project
     create_project -force ${stage}_proj . -part xc7z010clg400-1
 
-    # Add sources
-    add_files -norecurse $comb_v
+    # Add sources (all comb cores; the project top selects the stage)
+    add_files -norecurse $comb_src
 
     # Set top module
     set_property top $top_module [current_fileset]

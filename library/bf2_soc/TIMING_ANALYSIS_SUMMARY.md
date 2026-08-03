@@ -9,7 +9,7 @@ Date: 2026-08-01
 1. COMBINATIONAL STAGE DELAYS (Pin-to-Pin Analysis)
 -------------------------------------------------------------------------------
 Measured by synthesizing each stage's combinational logic in isolation
-(bf2_comb.sv modules, no clock, report_timing -from [all_inputs] -to [all_outputs])
+(timing/bf2_*_comb.sv modules, no clock, report_timing -from [all_inputs] -to [all_outputs])
 
 | Stage | Module                    | Max Delay | Logic Levels | Critical Path Components      |
 |-------|---------------------------|-----------|--------------|-------------------------------|
@@ -45,8 +45,8 @@ output FF) are the correct way to measure internal stage delays.
 -------------------------------------------------------------------------------
 2b. REGISTER-TO-REGISTER STAGE DELAYS (FF_in -> comb -> FF_out, no IBUF/OBUF)
 -------------------------------------------------------------------------------
-Measured by wrapping each combinational stage core (bf2_comb.sv) in input
-and output flip-flops (bf2_r2r.sv) -- simulating the pipeline registers
+Measured by wrapping each combinational stage core (timing/bf2_*_comb.sv) in input
+and output flip-flops (timing/bf2_*_r2r.sv) -- simulating the pipeline registers
 before/after the stage. The ports feed/tap ONLY FFs, so no IBUF/OBUF delay
 appears on any measured path. Clock: 100 MHz (10 ns).
 
@@ -242,18 +242,19 @@ NEXT BOTTLENECK: BRAM output registration (DOA_REG=1) would cut the
 -------------------------------------------------------------------------------
 FILES GENERATED:
 -------------------------------------------------------------------------------
-- bf2.sv              : Registered stage modules (s1-s4, LJ, stack)
-- bf2_comb.sv         : Combinational-only versions for delay measurement
-- bf2_r2r.sv          : R2R wrappers (comb core + input/output FFs)
-- bf2_pipeline.sv     : Full 4-stage pipeline with BRAM models
-- bf2_2stage.sv       : Full 2-stage pipeline (FD | EX/WB) with BRAM models
-- bf2_2stage_r2r.sv   : R2R wrappers for the merged FD / EX/WB clouds
-- synth_stage.tcl     : TCL script for registered stage synthesis
-- synth_comb.tcl      : TCL script for combinational stage synthesis
-- synth_r2r.tcl       : TCL script for register-to-register stage timing
-- synth_pipeline_full.tcl : TCL script for full pipeline synthesis
-- synth_2stage_full.tcl   : TCL script for 2-stage pipeline synthesis
-- synth_2stage_r2r.tcl    : TCL script for merged-cloud R2R timing
+- bf2.sv              : Registered stage modules (s1-s4, LJ, stack)  [archive_4stage/]
+- timing/bf2_*_comb.sv: Combinational-only cores, one file per module
+- timing/bf2_*_r2r.sv : R2R wrappers (comb core + input/output FFs)
+- timing/bf2_pipeline_full.sv : Full 4-stage pipeline with BRAM models
+- timing/bf2_bram_*.sv, timing/bf2_s1_fetch_with_imem.sv : pipeline BRAM/prefetch submodules
+- bf2_2stage.sv       : Full 2-stage pipeline (FD | EX/WB) with BRAM models  [archive_4stage/]
+- bf2_2stage_r2r.sv   : R2R wrappers for the merged FD / EX/WB clouds       [archive_4stage/]
+- timing/synth_stage.tcl     : TCL script for registered stage synthesis
+- timing/synth_comb.tcl      : TCL script for combinational stage synthesis
+- timing/synth_r2r.tcl       : TCL script for register-to-register stage timing
+- timing/synth_pipeline_full.tcl : TCL script for full pipeline synthesis
+- synth_2stage_full.tcl   : TCL script for 2-stage pipeline synthesis         [archive_4stage/]
+- synth_2stage_r2r.tcl    : TCL script for merged-cloud R2R timing            [archive_4stage/]
 
 Timing reports in:
 - synth_s*_comb/reports/timing_s*.rpt          (combinational)
