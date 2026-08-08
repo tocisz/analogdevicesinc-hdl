@@ -1,6 +1,9 @@
 LIBRARY_NAME := uart_phy
 
-GENERIC_DEPS += uart_phy.v
+GENERIC_DEPS += uart_phy.sv
+GENERIC_DEPS += uart_rx.sv
+GENERIC_DEPS += uart_tx.sv
+GENERIC_DEPS += fifo_sync.sv
 
 XILINX_DEPS += uart_phy_ip.tcl
 
@@ -10,7 +13,7 @@ include ../scripts/library.mk
 # Simulation targets (Vivado xsim)
 # ------------------------------------------------------------------
 SIM_TOP    := tb_uart_phy
-SIM_SRC    := uart_phy.v tb_uart_phy.v
+SIM_SRC    := uart_phy.sv uart_rx.sv uart_tx.sv fifo_sync.sv tb_uart_phy.sv
 SIM_LOG    := $(SIM_TOP)_sim.log
 
 .PHONY: sim

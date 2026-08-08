@@ -39,8 +39,8 @@ sim-uart: $(SIM_UART_LOG)
 	@echo "=== Simulation log: $(SIM_UART_LOG) ==="
 	@tail -30 $(SIM_UART_LOG)
 
-$(SIM_UART_LOG): bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.v tb_bf1_soc_uart.sv
-	xvlog --sv bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.v
+$(SIM_UART_LOG): bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.sv ../uart_phy/uart_rx.sv ../uart_phy/uart_tx.sv ../uart_phy/fifo_sync.sv tb_bf1_soc_uart.sv
+	xvlog --sv bf1_soc.v bf1.v stack.v ../uart_phy/uart_phy.sv ../uart_phy/uart_rx.sv ../uart_phy/uart_tx.sv ../uart_phy/fifo_sync.sv
 	xvlog --sv tb_bf1_soc_uart.sv
 	xelab $(SIM_UART_TOP) -log xelab_uart.log
 	xsim $(SIM_UART_TOP) -R | tee $(SIM_UART_LOG)

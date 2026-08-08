@@ -4,7 +4,10 @@ source $ad_hdl_dir/library/scripts/adi_ip_xilinx.tcl
 
 adi_ip_create uart_phy
 adi_ip_files uart_phy [list \
-  "uart_phy.v" ]
+  "uart_phy.sv" \
+  "uart_rx.sv" \
+  "uart_tx.sv" \
+  "fifo_sync.sv" ]
 
 adi_ip_properties_lite uart_phy
 

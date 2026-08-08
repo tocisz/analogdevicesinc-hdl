@@ -52,7 +52,7 @@ module echo_char #(
   wire [7:0] add1_data;
   wire       add1_valid;
 
-  wire       tx_busy;
+  wire       tx_ready;
   reg        tx_start;
   reg  [7:0] tx_data;
 
@@ -62,11 +62,11 @@ module echo_char #(
   // Backpressure: only accept a new byte from the FIFO when the
   // transmit path is free.  This prevents the FIFO from popping
   // data while the TX is busy (which would drop the byte).
-  wire rx_accept = !tx_busy;
+  wire rx_accept = tx_ready;
 
   uart_phy #(
-    .CLK_FREQ(CLK_FREQ),
-    .BAUD(BAUD)
+    .ClkFreq(CLK_FREQ),
+    .Baud(BAUD)
   ) u_phy (
     .clk(clk),
     .reset(reset),
@@ -78,8 +78,7 @@ module echo_char #(
     .rx_accept_i(rx_accept),
     .tx_data(tx_data),
     .tx_start(tx_start),
-    .tx_busy(tx_busy),
-    .tx_ready()
+    .tx_ready(tx_ready)
   );
 
   // ------------------------------------------------------------------
@@ -102,7 +101,7 @@ module echo_char #(
       tx_start <= 1'b0;
     end else begin
       tx_start <= 1'b0;  // default: single-cycle strobe
-      if (add1_valid && !tx_busy) begin
+      if (add1_valid && tx_ready) begin
         tx_data  <= add1_data;
         tx_start <= 1'b1;
       end

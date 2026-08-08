@@ -16,7 +16,7 @@ add_wave /tb_echo_char/dut/fifo_empty
 add_wave /tb_echo_char/dut/fifo_full
 add_wave /tb_echo_char/dut/tx_byte
 add_wave /tb_echo_char/dut/tx_start
-add_wave /tb_echo_char/dut/tx_busy
+add_wave /tb_echo_char/dut/tx_ready
 add_wave /tb_echo_char/dut/tx_state
 add_wave /tb_echo_char/dut/tx_shift_reg
 

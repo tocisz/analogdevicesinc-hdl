@@ -13,7 +13,10 @@ include ../scripts/library.mk
 # ------------------------------------------------------------------
 SIM_TOP    := tb_echo_char
 SIM_SRC    := echo_char.v tb_echo_char.v \
-              ../uart_phy/uart_phy.v \
+              ../uart_phy/uart_phy.sv \
+              ../uart_phy/uart_rx.sv \
+              ../uart_phy/uart_tx.sv \
+              ../uart_phy/fifo_sync.sv \
               ../char_add_one/char_add_one.v
 SIM_LOG    := $(SIM_TOP)_sim.log
 

@@ -38,7 +38,6 @@ module tb_bf1_soc_uart;
   wire        rx_accept;
   wire [7:0]  tx_data;
   wire        tx_start;
-  wire        tx_busy;
   wire        tx_ready;
   wire [12:0] debug_pc;
   wire [3:0]  debug_rsp;
@@ -72,8 +71,8 @@ module tb_bf1_soc_uart;
   );
 
   uart_phy #(
-    .CLK_FREQ(CLK_FREQ),
-    .BAUD(BAUD)
+    .ClkFreq(CLK_FREQ),
+    .Baud(BAUD)
   ) phy (
     .clk(clk_i),
     .reset(!resetq),
@@ -85,7 +84,6 @@ module tb_bf1_soc_uart;
     .rx_accept_i(rx_accept),
     .tx_data(tx_data),
     .tx_start(tx_start),
-    .tx_busy(tx_busy),
     .tx_ready(tx_ready)
   );
 
