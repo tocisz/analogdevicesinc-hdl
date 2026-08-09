@@ -230,7 +230,7 @@ create_clock -name ext_clk_50m \
 # fpga_x_clk
 
 create_clock -name fpga_0_clk \
-    -period 10.000 \
+    -period 12.500 \
     [get_pins {i_system_wrapper/system_i/sys_ps7/inst/PS7_i/FCLKCLK[0]}]
 
 set_input_jitter fpga_0_clk 0.3

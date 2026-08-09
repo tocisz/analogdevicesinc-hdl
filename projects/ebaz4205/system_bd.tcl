@@ -71,7 +71,9 @@ ad_ip_parameter sys_ps7 CONFIG.PCW_EN_RST1_PORT 0
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK2_PORT 0
 ad_ip_parameter sys_ps7 CONFIG.PCW_EN_CLK3_PORT 0
 
-ad_ip_parameter sys_ps7 CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ 100.0
+# 80 MHz gives the tv80 register-file/ALU path timing margin.  The HDMI
+# generator is configured below to preserve its 25.25 MHz pixel clock.
+ad_ip_parameter sys_ps7 CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ 80.0
 ad_ip_parameter sys_ps7 CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ 25.0
 
 ad_ip_parameter sys_ps7 CONFIG.PCW_NAND_PERIPHERAL_ENABLE 1

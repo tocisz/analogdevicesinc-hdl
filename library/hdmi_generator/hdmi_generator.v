@@ -60,7 +60,7 @@ module hdmi_generator #(
 );
 
   localparam DIVCLK_DIVIDE =
-    (VIDEO_ID_CODE == 1) ? 5 :
+    (VIDEO_ID_CODE == 1) ? 4 :
                            0;
 
   localparam CLKFBOUT_MULT_F =
@@ -89,7 +89,7 @@ endgenerate
     .BANDWIDTH("OPTIMIZED"),
     .COMPENSATION("ZHOLD"),
     .STARTUP_WAIT("FALSE"),
-    .CLKIN1_PERIOD(10.000),
+    .CLKIN1_PERIOD(12.500),
     .DIVCLK_DIVIDE(DIVCLK_DIVIDE),
     .CLKFBOUT_MULT_F(CLKFBOUT_MULT_F),
     .CLKOUT0_DIVIDE_F(CLKOUT0_DIVIDE_F),
