@@ -317,3 +317,42 @@ ad_connect bf2_ctrl/up_gp_out_2  bf2_soc_0/ctrl_gp2_out
 ad_connect bf2_soc_0/ctrl_gp0_in  bf2_ctrl/up_gp_in_0
 ad_connect bf2_soc_0/ctrl_gp1_in  bf2_ctrl/up_gp_in_1
 ad_connect bf2_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
+
+### PS↔PL byte-stream bridge test path (AXI-Stream FIFO + byte adapter + case_toggle)
+# bf2_soc stays on the uartlite path above; this fifo path is the bring-up
+# testbed for the bridge with case_toggle standing in for bf2_soc.
+
+ad_ip_instance axi_fifo_mm_s axi_fifo_mm_s_0
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_DATA_INTERFACE_TYPE 0
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_DATA 1
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_RX_DATA 1
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_CTRL 0
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_TX_FIFO_DEPTH 1024
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_RX_FIFO_DEPTH 1024
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_CUT_THROUGH 0
+ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_RX_CUT_THROUGH 0
+ad_connect sys_cpu_clk axi_fifo_mm_s_0/s_axi_aclk
+ad_connect sys_cpu_resetn axi_fifo_mm_s_0/s_axi_aresetn
+
+ad_cpu_interconnect 0x7C450000 axi_fifo_mm_s_0
+ad_cpu_interrupt ps-14 mb-14 axi_fifo_mm_s_0/interrupt
+
+# axis_byte_bridge v1 (drop-24): 32-bit stream words ↔ 8-bit byte handshake
+ad_ip_instance axis_byte_bridge axis_byte_bridge_0
+ad_connect sys_cpu_clk axis_byte_bridge_0/clk
+ad_connect sys_cpu_reset axis_byte_bridge_0/reset
+
+ad_connect axi_fifo_mm_s_0/AXI_STR_TXD axis_byte_bridge_0/m_axis
+ad_connect axis_byte_bridge_0/s_axis axi_fifo_mm_s_0/AXI_STR_RXD
+
+# case_toggle (test stand-in for bf2_soc): toggles ASCII case (XOR 0x20)
+ad_ip_instance case_toggle case_toggle_0
+ad_connect sys_cpu_clk case_toggle_0/clk
+ad_connect sys_cpu_reset case_toggle_0/reset
+
+ad_connect axis_byte_bridge_0/rx_data   case_toggle_0/io_rx_data
+ad_connect axis_byte_bridge_0/rx_valid  case_toggle_0/io_rx_valid
+ad_connect case_toggle_0/io_rx_ready    axis_byte_bridge_0/rx_accept
+ad_connect case_toggle_0/io_tx_data     axis_byte_bridge_0/tx_data
+ad_connect case_toggle_0/io_tx_valid    axis_byte_bridge_0/tx_valid
+ad_connect axis_byte_bridge_0/tx_ready  case_toggle_0/io_tx_ready

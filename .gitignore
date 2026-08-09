@@ -99,6 +99,8 @@ _vmake
 library/**/bd/bd.tcl
 *.syn.smsg
 *.syn.summary
+*.pb
+xsim.dir
 qdb
 tmp-clearbox
 *.bin

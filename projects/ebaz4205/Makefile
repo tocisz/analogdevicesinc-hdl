@@ -16,6 +16,8 @@ LIB_DEPS += uart_phy
 LIB_DEPS += char_add_one
 LIB_DEPS += bf1_soc
 LIB_DEPS += bf2_soc
+LIB_DEPS += axis_byte_bridge
+LIB_DEPS += case_toggle
 LIB_DEPS += axi_gpreg
 
 include ../scripts/project-xilinx.mk
