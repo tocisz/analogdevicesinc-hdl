@@ -275,26 +275,26 @@ create_bd_addr_seg -range 0x20000000 -offset 0x00000000 \
 
 ad_cpu_interrupt ps-12 mb-12 hdmi_sink_dma/irq
 
-# ── bf2_soc ──
-ad_ip_instance bf2_soc bf2_soc_0
-ad_connect sys_cpu_clk bf2_soc_0/clk_i
-ad_connect sys_cpu_resetn bf2_soc_0/resetq
+# ── z80_soc (replaces bf2_soc) ──
+ad_ip_instance z80_soc z80_soc_0
+ad_connect sys_cpu_clk z80_soc_0/clk_i
+ad_connect sys_cpu_resetn z80_soc_0/resetq
 
-# ── bf2 control via axi_gpreg ──
+# ── Z80 control via axi_gpreg ──
 ad_ip_instance axi_gpreg bf2_ctrl
 ad_ip_parameter bf2_ctrl CONFIG.NUM_OF_IO 3
 ad_ip_parameter bf2_ctrl CONFIG.NUM_OF_CLK_MONS 0
 ad_ip_parameter bf2_ctrl CONFIG.ID 48912
 ad_cpu_interconnect 0x7C440000 bf2_ctrl
 
-ad_connect bf2_ctrl/up_gp_out_0  bf2_soc_0/ctrl_gp0_out
-ad_connect bf2_ctrl/up_gp_out_1  bf2_soc_0/ctrl_gp1_out
-ad_connect bf2_ctrl/up_gp_out_2  bf2_soc_0/ctrl_gp2_out
-ad_connect bf2_soc_0/ctrl_gp0_in  bf2_ctrl/up_gp_in_0
-ad_connect bf2_soc_0/ctrl_gp1_in  bf2_ctrl/up_gp_in_1
-ad_connect bf2_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
+ad_connect bf2_ctrl/up_gp_out_0  z80_soc_0/ctrl_gp0_out
+ad_connect bf2_ctrl/up_gp_out_1  z80_soc_0/ctrl_gp1_out
+ad_connect bf2_ctrl/up_gp_out_2  z80_soc_0/ctrl_gp2_out
+ad_connect z80_soc_0/ctrl_gp0_in  bf2_ctrl/up_gp_in_0
+ad_connect z80_soc_0/ctrl_gp1_in  bf2_ctrl/up_gp_in_1
+ad_connect z80_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
 
-### PS↔PL byte-stream bridge + bf2_soc (AXI-Stream FIFO + byte adapter + bf2_soc)
+### PS↔PL byte-stream bridge + z80_soc (AXI-Stream FIFO + byte adapter + Z80)
 
 ad_ip_instance axi_fifo_mm_s axi_fifo_mm_s_0
 ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_DATA_INTERFACE_TYPE 0
@@ -319,12 +319,12 @@ ad_connect sys_cpu_reset axis_byte_bridge_0/reset
 ad_connect axi_fifo_mm_s_0/AXI_STR_TXD axis_byte_bridge_0/m_axis
 ad_connect axis_byte_bridge_0/s_axis axi_fifo_mm_s_0/AXI_STR_RXD
 
-# ── bridge ↔ bf2_soc byte handshake ──
-ad_connect axis_byte_bridge_0/rx_data   bf2_soc_0/io_rx_data
-ad_connect axis_byte_bridge_0/rx_valid  bf2_soc_0/io_rx_valid
-ad_connect bf2_soc_0/io_rx_ready       axis_byte_bridge_0/rx_accept
-ad_connect bf2_soc_0/io_tx_data        axis_byte_bridge_0/tx_data
-ad_connect bf2_soc_0/io_tx_valid       axis_byte_bridge_0/tx_valid
-ad_connect axis_byte_bridge_0/tx_ready bf2_soc_0/io_tx_ready
+# ── bridge ↔ z80_soc byte handshake ──
+ad_connect axis_byte_bridge_0/rx_data   z80_soc_0/io_rx_data
+ad_connect axis_byte_bridge_0/rx_valid  z80_soc_0/io_rx_valid
+ad_connect z80_soc_0/io_rx_ready       axis_byte_bridge_0/rx_accept
+ad_connect z80_soc_0/io_tx_data        axis_byte_bridge_0/tx_data
+ad_connect z80_soc_0/io_tx_valid       axis_byte_bridge_0/tx_valid
+ad_connect axis_byte_bridge_0/tx_ready z80_soc_0/io_tx_ready
 
 
