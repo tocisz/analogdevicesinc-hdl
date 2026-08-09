@@ -275,34 +275,10 @@ create_bd_addr_seg -range 0x20000000 -offset 0x00000000 \
 
 ad_cpu_interrupt ps-12 mb-12 hdmi_sink_dma/irq
 
-### PL TTY character device
-
-ad_ip_instance axi_uartlite axi_uartlite_0
-ad_ip_parameter axi_uartlite_0 CONFIG.C_BAUDRATE 115200
-ad_ip_parameter axi_uartlite_0 CONFIG.C_DATA_BITS 8
-ad_ip_parameter axi_uartlite_0 CONFIG.C_USE_PARITY 0
-ad_ip_parameter axi_uartlite_0 CONFIG.C_ODD_PARITY 0
-
-ad_cpu_interconnect 0x7C430000 axi_uartlite_0
-ad_cpu_interrupt ps-13 mb-13 axi_uartlite_0/interrupt
-
-# ── UART PHY ──
-ad_ip_instance uart_phy uart_phy_0
-ad_connect sys_cpu_clk uart_phy_0/clk
-ad_connect sys_cpu_reset uart_phy_0/reset
-ad_connect axi_uartlite_0/tx uart_phy_0/uart_rx_i
-ad_connect axi_uartlite_0/rx uart_phy_0/uart_tx_o
-
 # ── bf2_soc ──
 ad_ip_instance bf2_soc bf2_soc_0
 ad_connect sys_cpu_clk bf2_soc_0/clk_i
 ad_connect sys_cpu_resetn bf2_soc_0/resetq
-ad_connect uart_phy_0/rx_data   bf2_soc_0/io_rx_data
-ad_connect uart_phy_0/rx_valid  bf2_soc_0/io_rx_valid
-ad_connect bf2_soc_0/io_rx_ready  uart_phy_0/rx_accept_i
-ad_connect bf2_soc_0/io_tx_data   uart_phy_0/tx_data
-ad_connect bf2_soc_0/io_tx_valid  uart_phy_0/tx_start
-ad_connect uart_phy_0/tx_ready    bf2_soc_0/io_tx_ready
 
 # ── bf2 control via axi_gpreg ──
 ad_ip_instance axi_gpreg bf2_ctrl
@@ -318,9 +294,7 @@ ad_connect bf2_soc_0/ctrl_gp0_in  bf2_ctrl/up_gp_in_0
 ad_connect bf2_soc_0/ctrl_gp1_in  bf2_ctrl/up_gp_in_1
 ad_connect bf2_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
 
-### PS↔PL byte-stream bridge test path (AXI-Stream FIFO + byte adapter + case_toggle)
-# bf2_soc stays on the uartlite path above; this fifo path is the bring-up
-# testbed for the bridge with case_toggle standing in for bf2_soc.
+### PS↔PL byte-stream bridge + bf2_soc (AXI-Stream FIFO + byte adapter + bf2_soc)
 
 ad_ip_instance axi_fifo_mm_s axi_fifo_mm_s_0
 ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_DATA_INTERFACE_TYPE 0
@@ -345,14 +319,12 @@ ad_connect sys_cpu_reset axis_byte_bridge_0/reset
 ad_connect axi_fifo_mm_s_0/AXI_STR_TXD axis_byte_bridge_0/m_axis
 ad_connect axis_byte_bridge_0/s_axis axi_fifo_mm_s_0/AXI_STR_RXD
 
-# case_toggle (test stand-in for bf2_soc): toggles ASCII case (XOR 0x20)
-ad_ip_instance case_toggle case_toggle_0
-ad_connect sys_cpu_clk case_toggle_0/clk
-ad_connect sys_cpu_reset case_toggle_0/reset
+# ── bridge ↔ bf2_soc byte handshake ──
+ad_connect axis_byte_bridge_0/rx_data   bf2_soc_0/io_rx_data
+ad_connect axis_byte_bridge_0/rx_valid  bf2_soc_0/io_rx_valid
+ad_connect bf2_soc_0/io_rx_ready       axis_byte_bridge_0/rx_accept
+ad_connect bf2_soc_0/io_tx_data        axis_byte_bridge_0/tx_data
+ad_connect bf2_soc_0/io_tx_valid       axis_byte_bridge_0/tx_valid
+ad_connect axis_byte_bridge_0/tx_ready bf2_soc_0/io_tx_ready
 
-ad_connect axis_byte_bridge_0/rx_data   case_toggle_0/io_rx_data
-ad_connect axis_byte_bridge_0/rx_valid  case_toggle_0/io_rx_valid
-ad_connect case_toggle_0/io_rx_ready    axis_byte_bridge_0/rx_accept
-ad_connect case_toggle_0/io_tx_data     axis_byte_bridge_0/tx_data
-ad_connect case_toggle_0/io_tx_valid    axis_byte_bridge_0/tx_valid
-ad_connect axis_byte_bridge_0/tx_ready  case_toggle_0/io_tx_ready
+
