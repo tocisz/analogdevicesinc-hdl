@@ -46,8 +46,8 @@ module z80_soc (
   // ==================================================================
   // Parameters
   // ==================================================================
-  localparam int RomDepth = 8192;  // 8K × 8 (1× BRAM36)
-  localparam int RamDepth = 8192;  // 8K × 8 (1× BRAM36, expandable)
+  localparam int RomDepth = 8192;  // 8K × 8 (2× BRAM36E1)
+  localparam int RamDepth = 56 * 1024;  // 56K × 8 (0x2000–0xFFFF)
 
   // ==================================================================
   // wb_tv80 Wishbone signals
@@ -269,7 +269,8 @@ module z80_soc (
   logic [7:0] rom_a_dout;  // Port A (Z80 read)
   logic [7:0] rom_b_dout;  // Port B (PS read)
 
-  // ── RAM: 8K × 8 ──
+  // ── RAM: 56K × 8 ──
+  // The PS-side address is an offset from the Z80 RAM base (0x2000).
   (* ram_style = "block" *) logic [7:0] ram [RamDepth];
   logic [7:0] ram_a_dout;  // Port A (Z80 read/write)
   logic [7:0] ram_b_dout;  // Port B (PS read/write)
@@ -286,11 +287,16 @@ module z80_soc (
     rom_a_dout <= rom[wbm_adr_o[12:0]];
   end
 
-  // RAM Port A: read/write via Wishbone
+  // RAM Port A: read/write via Wishbone.  The physical RAM starts at Z80
+  // address 0x2000, so translate the CPU address to a zero-based RAM index.
+  wire [15:0] ram_a_addr = wbm_adr_o - 16'h2000;
   always_ff @(posedge clk_i) begin
-    ram_a_dout <= ram[wbm_adr_o[12:0]];
+    if (is_ram)
+      ram_a_dout <= ram[ram_a_addr];
+    else
+      ram_a_dout <= 8'h00;
     if (wb_valid && is_ram && wbm_we_o)
-      ram[wbm_adr_o[12:0]] <= wbm_dat_o;
+      ram[ram_a_addr] <= wbm_dat_o;
   end
 
   // ==================================================================
@@ -303,11 +309,16 @@ module z80_soc (
       rom[ctrl_gp2_out[12:0]] <= ctrl_gp2_out[23:16];
   end
 
-  // RAM Port B: PS writes/reads data
+  // RAM Port B: PS writes/reads data.  GP1 addresses are zero-based RAM
+  // offsets; reject offsets above 0xDFFF rather than indexing out of range.
+  wire ram_b_valid = (ctrl_gp1_out[15:0] < RamDepth);
   always_ff @(posedge clk_i) begin
-    ram_b_dout <= ram[ctrl_gp1_out[12:0]];
-    if (ctrl_gp1_out[24] && !gp1_wr_d)
-      ram[ctrl_gp1_out[12:0]] <= ctrl_gp1_out[23:16];
+    if (ram_b_valid)
+      ram_b_dout <= ram[ctrl_gp1_out[15:0]];
+    else
+      ram_b_dout <= 8'h00;
+    if (ctrl_gp1_out[24] && !gp1_wr_d && ram_b_valid)
+      ram[ctrl_gp1_out[15:0]] <= ctrl_gp1_out[23:16];
   end
 
   // ==================================================================
@@ -351,16 +362,28 @@ module z80_soc (
 
   logic [7:0] io_tx_data_int;
   logic       io_tx_valid_int;
+  // A Wishbone request remains asserted until the registered ack is seen by
+  // tv80.  Remember that an OUT request has already been presented so it
+  // cannot generate multiple byte-side strobes while waiting for that ack.
+  logic       io_tx_issued;
 
   always_ff @(posedge clk_i or negedge resetq) begin
     if (!resetq) begin
       io_tx_data_int  <= '0;
       io_tx_valid_int <= '0;
+      io_tx_issued    <= '0;
     end else begin
       io_tx_valid_int <= '0;  // default: single-cycle pulse
-      if (wb_valid && is_io_cycle && wbm_we_o && io_tx_ready && cpu_active) begin
+
+      // Every Z80 instruction has an M1 memory cycle between I/O cycles, so
+      // leaving the I/O write request clears the per-request guard.  This
+      // also clears it while halted, allowing a later OUT to be issued.
+      if (!cpu_active || !wb_valid || !is_io_cycle || !wbm_we_o) begin
+        io_tx_issued <= '0;
+      end else if (!io_tx_issued && io_tx_ready) begin
         io_tx_data_int  <= wbm_dat_o;
         io_tx_valid_int <= '1;
+        io_tx_issued    <= '1;
       end
     end
   end
@@ -382,7 +405,7 @@ module z80_soc (
   // ==================================================================
   //
   // ctrl_gp1 — RAM access (same bits as bf2_soc data_ram):
-  //   [14:0]   addr
+  //   [15:0]   addr (zero-based offset within Z80 RAM at 0x2000)
   //   [23:16]  wdata
   //   [24]     wr_strobe (rising edge → write wdata to ram[addr])
   //   [25]     rd_strobe (rising edge → read ram[addr] → ctrl_gp1_in[7:0])

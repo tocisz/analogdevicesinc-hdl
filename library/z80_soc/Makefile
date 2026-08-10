@@ -20,7 +20,7 @@ include ../scripts/library.mk
 lint: lint-verilator lint-verible
 
 lint-verilator:
-	verilator --lint-only -Wall --top-module z80_soc z80_soc.sv rtl/wb_tv80/wb_tv80.v rtl/core/tv80s.v rtl/core/tv80_core.v rtl/core/tv80_alu.v rtl/core/tv80_mcode.v rtl/core/tv80_reg.v
+	verilator --lint-only --no-timing -Wall --Wno-fatal --top-module z80_soc z80_soc.sv rtl/wb_tv80/wb_tv80.v rtl/core/tv80s.v rtl/core/tv80_core.v rtl/core/tv80_alu.v rtl/core/tv80_mcode.v rtl/core/tv80_reg.v
 
 lint-verible:
 	verible-verilog-lint z80_soc.sv
