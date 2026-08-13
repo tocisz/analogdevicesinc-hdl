@@ -1,0 +1,3 @@
+# Verilator build outputs
+obj_dir/
+obj_dir_acia/

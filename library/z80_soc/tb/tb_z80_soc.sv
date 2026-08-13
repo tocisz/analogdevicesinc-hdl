@@ -259,6 +259,57 @@ module tb_z80_soc;
       check_byte("OUT[3]", tx_log[3], 8'h03);
     end
 
+    // ACIA regression: init CR 0x17, then poll TDRE and OUT incrementing
+    // bytes to port 0x81.  The CR write must NOT appear on the byte
+    // bridge, and TDRE must come back after each data write.
+    //   2000: LD A,0x17
+    //   2002: OUT (0x80),A
+    //   2004: LD B,0
+    //   2006: IN A,(0x80)
+    //   2008: AND 0x02
+    //   200A: JP Z,2006
+    //   200D: LD A,B
+    //   200E: OUT (0x81),A
+    //   2010: INC B
+    //   2011: JP 2006
+    ram_write(16'h0000, 8'h3E);
+    ram_write(16'h0001, 8'h17);
+    ram_write(16'h0002, 8'hD3);
+    ram_write(16'h0003, 8'h80);
+    ram_write(16'h0004, 8'h06);
+    ram_write(16'h0005, 8'h00);
+    ram_write(16'h0006, 8'hDB);
+    ram_write(16'h0007, 8'h80);
+    ram_write(16'h0008, 8'hE6);
+    ram_write(16'h0009, 8'h02);
+    ram_write(16'h000A, 8'hCA);
+    ram_write(16'h000B, 8'h06);
+    ram_write(16'h000C, 8'h20);
+    ram_write(16'h000D, 8'h78);
+    ram_write(16'h000E, 8'hD3);
+    ram_write(16'h000F, 8'h81);
+    ram_write(16'h0010, 8'h04);
+    ram_write(16'h0011, 8'hC3);
+    ram_write(16'h0012, 8'h06);
+    ram_write(16'h0013, 8'h20);
+    pulse_control(32'h00000002); // RESET
+    repeat (3) @(posedge clk);
+    tx_count = 0;
+    pulse_control(32'h00000008); // RUN
+    repeat (800) @(posedge clk);
+    pulse_control(32'h00000001); // HALT
+    repeat (3) @(posedge clk);
+
+    if (tx_count < 4) begin
+      $display("FAIL: ACIA expected at least 4 TX strobes, got %0d", tx_count);
+      errors = errors + 1;
+    end else begin
+      check_byte("ACIA TX[0]", tx_log[0], 8'h00);
+      check_byte("ACIA TX[1]", tx_log[1], 8'h01);
+      check_byte("ACIA TX[2]", tx_log[2], 8'h02);
+      check_byte("ACIA TX[3]", tx_log[3], 8'h03);
+    end
+
     if (errors != 0) begin
       $display("Z80 SoC simulation FAILED (%0d errors)", errors);
       $fatal(1);

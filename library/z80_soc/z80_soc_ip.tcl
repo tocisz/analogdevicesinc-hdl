@@ -12,6 +12,7 @@ adi_ip_files z80_soc [list \
   "rtl/core/tv80_mcode.v" \
   "rtl/core/tv80_reg.v" \
   "rtl/wb_tv80/wb_tv80.v" \
+  "rtl/acia68b50/acia68b50.sv" \
   "z80_soc.sv" \
 ]
 

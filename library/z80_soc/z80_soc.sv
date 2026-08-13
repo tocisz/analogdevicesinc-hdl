@@ -11,9 +11,12 @@
 // What the wrapper does:
 //   * Instantiates wb_tv80 (tv80s + Wishbone master logic)
 //   * Wishbone address decoder: ROM (0x0000–0x1FFF), RAM (0x2000–0xFFFF),
-//     I/O space (any port → axis_byte_bridge byte handshake)
+//     I/O space split into:
+//       - Ports 0x80-0x81 → MC68B50 ACIA (acia68b50)
+//       - All other ports → raw axis_byte_bridge byte handshake
 //   * Dual-port BRAMs: Port A = Z80 (Wishbone), Port B = PS (ctrl_gp1/2)
 //   * I/O bridge: Z80 IN/OUT ↔ io_rx_* / io_tx_* handshake
+//   * ACIA TX/RX shares the byte bridge with the raw I/O path
 //   * Control: halt / run / step / reset via ctrl_gp0 (same protocol)
 //   * Step mode uses the tv80's m1_n signal to detect instruction boundaries
 // ==========================================================================
@@ -258,6 +261,12 @@ module z80_soc (
   wire is_rom = is_mem_cycle && (wbm_adr_o[15:13] == 3'b000);
   wire is_ram = is_mem_cycle && (wbm_adr_o[15:13] != 3'b000);
 
+  // I/O port decode:
+  //   Ports 0x80-0x81 → MC68B50 ACIA (RS=bit 0, so 0x80=CR/SR, 0x81=Data)
+  //   All other ports → raw byte bridge (legacy catch-all, backward compat)
+  wire is_acia    = is_io_cycle && (wbm_adr_o[7:1] == 7'b1000000);
+  wire is_io_raw  = is_io_cycle && !is_acia;
+
   wire wb_valid = wbm_cyc_o && wbm_stb_o;
 
   // ==================================================================
@@ -324,37 +333,43 @@ module z80_soc (
   // ==================================================================
   // Wishbone ack generation
   // ==================================================================
-  // All slaves have 1-cycle registered ack.
-  // I/O ack is delayed until the byte bridge is ready (variable latency).
-  logic rom_ack, ram_ack, io_ack;
-  logic io_ack_ready;
+  // ROM and RAM: 1-cycle registered ack.
+  // Raw I/O: delayed until the byte bridge is ready (variable latency).
+  // ACIA: 1-cycle ack (register access, always ready).
+  logic rom_ack, ram_ack, io_raw_ack, acia_ack;
+  logic io_raw_ack_ready;
 
   always_ff @(posedge clk_i) begin
-    rom_ack <= cpu_active && wb_valid && is_rom;
-    ram_ack <= cpu_active && wb_valid && is_ram;
-    io_ack  <= cpu_active && wb_valid && is_io_cycle && io_ack_ready;
+    rom_ack    <= cpu_active && wb_valid && is_rom;
+    ram_ack    <= cpu_active && wb_valid && is_ram;
+    io_raw_ack <= cpu_active && wb_valid && is_io_raw && io_raw_ack_ready;
   end
 
-  // I/O ack ready: for OUT (write) wait for tx_ready;
+  // Raw I/O ack ready: for OUT (write) wait for tx_ready;
   // for IN (read) wait for rx_valid.
-  assign io_ack_ready = wbm_we_o ? io_tx_ready : io_rx_valid;
+  assign io_raw_ack_ready = wbm_we_o ? io_tx_ready : io_rx_valid;
 
   // Wishbone data input mux: Z80 reads from whichever slave is active
+  // ACIA: data from ACIA data_out (status or data register)
+  // Raw I/O: data from byte bridge
+  wire [7:0] acia_data_out;
   always_comb begin
     unique case (1'b1)
-      is_rom:      wbm_dat_i = rom_a_dout;
-      is_ram:      wbm_dat_i = ram_a_dout;
-      is_io_cycle: wbm_dat_i = io_rx_data;
-      default:     wbm_dat_i = 8'h00;
+      is_rom:    wbm_dat_i = rom_a_dout;
+      is_ram:    wbm_dat_i = ram_a_dout;
+      is_acia:   wbm_dat_i = acia_data_out;
+      is_io_raw: wbm_dat_i = io_rx_data;
+      default:   wbm_dat_i = 8'h00;
     endcase
   end
 
-  assign wbm_ack_i = rom_ack | ram_ack | io_ack;
+  assign wbm_ack_i = rom_ack | ram_ack | io_raw_ack | acia_ack;
 
   // ==================================================================
-  // I/O Bridge — Z80 IN/OUT ↔ axis_byte_bridge byte handshake
+  // Raw I/O Bridge — Z80 IN/OUT ↔ axis_byte_bridge byte handshake
   // ==================================================================
   //
+  // Handles all Z80 I/O ports EXCEPT 0x80-0x81 (which go to the ACIA).
   // TX: Z80 OUT → byte to axis_byte_bridge → AXI FIFO → Linux
   // RX: Z80 IN  ← byte from axis_byte_bridge ← AXI FIFO ← Linux
   //
@@ -378,7 +393,7 @@ module z80_soc (
       // Every Z80 instruction has an M1 memory cycle between I/O cycles, so
       // leaving the I/O write request clears the per-request guard.  This
       // also clears it while halted, allowing a later OUT to be issued.
-      if (!cpu_active || !wb_valid || !is_io_cycle || !wbm_we_o) begin
+      if (!cpu_active || !wb_valid || !is_io_raw || !wbm_we_o) begin
         io_tx_issued <= '0;
       end else if (!io_tx_issued && io_tx_ready) begin
         io_tx_data_int  <= wbm_dat_o;
@@ -388,11 +403,50 @@ module z80_soc (
     end
   end
 
-  assign io_tx_data  = io_tx_data_int;
-  assign io_tx_valid = io_tx_valid_int;
+  // RX: Z80 reads from PS during a raw I/O read (IN) cycle
+  wire io_rx_ready_raw = wb_valid && is_io_raw && !wbm_we_o && cpu_active;
 
-  // RX: Z80 reads from PS during an I/O read (IN) cycle
-  assign io_rx_ready = wb_valid && is_io_cycle && !wbm_we_o && cpu_active;
+  // ==================================================================
+  // ACIA68B50 — MC68B50-compatible ACIA on ports 0x80-0x81
+  // ==================================================================
+  // The ACIA shares the byte bridge (io_rx_* / io_tx_*) with the raw I/O
+  // path.  ACIA TX/RX signals are OR'd/mux'd with the raw bridge signals
+  // below — since only one I/O cycle is active at a time, no conflict.
+  //
+  // ACIA register access completes in 1 cycle (registered ack).
+
+  wire [7:0] acia_tx_byte;
+  wire       acia_tx_valid;
+  wire       acia_rx_consume;
+  wire       acia_irq;
+
+  acia68b50 acia (
+    .clk       (clk_i),
+    .reset     (!cpu_nrst),           // active high, synchronous
+    .cs        (cpu_active && wb_valid && is_acia),
+    .rs        (wbm_adr_o[0]),        // port 0x80=CR/SR, 0x81=Data
+    .r_nw      (!wbm_we_o),           // 1=read, 0=write
+    .data_in   (wbm_dat_o),
+    .data_out  (acia_data_out),
+    .ack       (acia_ack),
+    .irq       (acia_irq),
+    .rx_byte   (io_rx_data),
+    .rx_valid  (io_rx_valid),
+    .rx_consume(acia_rx_consume),
+    .tx_byte   (acia_tx_byte),
+    .tx_valid  (acia_tx_valid),
+    .tx_ready  (io_tx_ready)
+  );
+
+  // ==================================================================
+  // I/O TX/RX mux — ACIA shares the byte bridge with the raw I/O path
+  // ==================================================================
+  // ACIA TX can fire after the I/O cycle has already ended (deferred
+  // until tx_ready).  Do not gate it with is_acia — OR the strobes and
+  // let a live ACIA strobe own the data bus.
+  assign io_rx_ready = acia_rx_consume || io_rx_ready_raw;
+  assign io_tx_valid = acia_tx_valid || io_tx_valid_int;
+  assign io_tx_data  = acia_tx_valid ? acia_tx_byte : io_tx_data_int;
 
   // ==================================================================
   // Debug outputs
