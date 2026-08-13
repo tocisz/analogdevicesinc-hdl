@@ -66,7 +66,11 @@ module acia68b50 (
   wire cs_rise = cs && !cs_d;
 
   wire irq_tx = (cr_tx_ctrl == 2'b01) && sr_tdre;
-  wire irq_rx = cr_rx_int_en && sr_rdrf;
+  // RX is deliberately not prefetched: rx_valid is the bridge's held-byte
+  // indication and remains asserted until an explicit ACIA data-register read
+  // produces rx_consume.  Treat it as RDRF for interrupt purposes as well as
+  // for the status bit below.
+  wire irq_rx = cr_rx_int_en && (sr_rdrf || rx_valid);
   assign irq = irq_tx || irq_rx;
 
   wire [7:0] status = {

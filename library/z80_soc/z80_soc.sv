@@ -80,7 +80,10 @@ module z80_soc (
     .wbm_we_o  (wbm_we_o),
     .wbm_ack_i (wbm_ack_i),
     .nmi_req_i ('0),
-    .int_req_i ('0),
+    // ACIA IRQ is active high at this boundary; wb_tv80 converts it to the
+    // active-low TV80 INT input.  The ACIA remains level-triggered until its
+    // status condition is serviced by firmware.
+    .int_req_i (acia_irq),
     .busrq_i   ('0),
     .busak_o   (),
     .m1_n_o    (m1_n_o)

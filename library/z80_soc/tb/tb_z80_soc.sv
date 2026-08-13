@@ -33,6 +33,7 @@ module tb_z80_soc;
 
   integer errors = 0;
   integer tx_count = 0;
+  integer rx_ready_count = 0;
   logic [7:0] tx_log [0:31];
 
   // Capture every byte-side TX strobe.  This is intentionally independent
@@ -42,6 +43,8 @@ module tb_z80_soc;
       tx_log[tx_count] = io_tx_data;
       tx_count = tx_count + 1;
     end
+    if (io_rx_ready)
+      rx_ready_count = rx_ready_count + 1;
   end
 
   z80_soc dut (
@@ -309,6 +312,58 @@ module tb_z80_soc;
       check_byte("ACIA TX[2]", tx_log[2], 8'h02);
       check_byte("ACIA TX[3]", tx_log[3], 8'h03);
     end
+
+    // IM 1 ACIA RX interrupt regression.  The ROM vector at 0038 emits A5
+    // through the legacy raw I/O path, then disables interrupts and halts.
+    // The held RX byte must raise ACIA IRQ but must not be consumed before an
+    // explicit ACIA data-register read.  In particular, INTACK must not turn
+    // into a raw I/O read (which would assert io_rx_ready).
+    rom_write(13'h0038, 8'h3E); // LD A, A5
+    rom_write(13'h0039, 8'hA5);
+    rom_write(13'h003A, 8'hD3); // OUT (0), A
+    rom_write(13'h003B, 8'h00);
+    rom_write(13'h003C, 8'hF3); // DI
+    rom_write(13'h003D, 8'h76); // HALT
+
+    // RAM at 2000:
+    //   reset ACIA, enable receive IRQ, select IM 1, EI, HALT
+    ram_write(16'h0000, 8'h3E);
+    ram_write(16'h0001, 8'h03);
+    ram_write(16'h0002, 8'hD3);
+    ram_write(16'h0003, 8'h80);
+    ram_write(16'h0004, 8'h3E);
+    ram_write(16'h0005, 8'h97);
+    ram_write(16'h0006, 8'hD3);
+    ram_write(16'h0007, 8'h80);
+    ram_write(16'h0008, 8'hED);
+    ram_write(16'h0009, 8'h56); // IM 1
+    ram_write(16'h000A, 8'hFB); // EI
+    ram_write(16'h000B, 8'h76); // HALT until IRQ
+
+    pulse_control(32'h00000002); // RESET
+    repeat (3) @(posedge clk);
+    io_rx_data = 8'h5A;
+    io_rx_valid = 1'b1;
+    rx_ready_count = 0;
+    tx_count = 0;
+    pulse_control(32'h00000008); // RUN
+    repeat (500) @(posedge clk);
+    pulse_control(32'h00000001); // HALT
+    repeat (3) @(posedge clk);
+
+    if (tx_count < 1) begin
+      $display("FAIL: IM 1 ACIA IRQ handler produced no raw TX byte");
+      errors = errors + 1;
+    end else begin
+      check_byte("IM 1 IRQ handler TX", tx_log[0], 8'hA5);
+    end
+    if (rx_ready_count != 0) begin
+      $display("FAIL: INTACK incorrectly asserted io_rx_ready %0d time(s)", rx_ready_count);
+      errors = errors + 1;
+    end else begin
+      $display("PASS: INTACK did not consume raw RX data");
+    end
+    io_rx_valid = 1'b0;
 
     if (errors != 0) begin
       $display("Z80 SoC simulation FAILED (%0d errors)", errors);

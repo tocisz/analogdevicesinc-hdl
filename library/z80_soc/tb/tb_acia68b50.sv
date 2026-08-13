@@ -138,6 +138,27 @@ module tb_acia68b50;
       errors = errors + 1;
     end else $display("PASS: TDRE restored after deferred TX");
 
+    // RX interrupt: enabling REI must assert IRQ for a byte already held by
+    // the bridge.  The ACIA must not consume it until the data register read.
+    rx_byte = 8'hC3;
+    rx_valid = 1'b1;
+    bus_write(1'b0, 8'h97); // REI + 8-bit mode; TX interrupt disabled
+    if (!irq) begin
+      $display("FAIL: RX IRQ did not assert while rx_valid");
+      errors = errors + 1;
+    end else $display("PASS: RX IRQ asserted from rx_valid");
+    bus_read(1'b1, sr);
+    if (sr !== 8'hC3) begin
+      $display("FAIL: IRQ test data read 0x%02x, expected 0xC3", sr);
+      errors = errors + 1;
+    end else $display("PASS: IRQ test data read 0xC3");
+    rx_valid = 1'b0; // model the bridge consuming the byte on rx_consume
+    repeat (2) @(posedge clk);
+    if (irq) begin
+      $display("FAIL: RX IRQ remained asserted after data consumption");
+      errors = errors + 1;
+    end else $display("PASS: RX IRQ cleared after data consumption");
+
     // RX: present a byte, RDRF, then read it
     rx_byte = 8'h5A;
     rx_valid = 1'b1;

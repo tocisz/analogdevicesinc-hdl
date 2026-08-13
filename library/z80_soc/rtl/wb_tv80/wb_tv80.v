@@ -80,7 +80,14 @@ module wb_tv80 (nrst_i, clk_i,
     assign wbm_adr_o = tv80_adr;
     assign wbm_dat_o = tv80_dat_o;
     assign wbm_we_o  = ~wr_n & (~mreq_n | ~iorq_n);
-    assign wbm_stb_o = (~wr_n | ~rd_n) & (~mreq_n | ~iorq_n | ~m1_n);
+
+    // A Z80 maskable interrupt acknowledge is an M1 cycle with IORQ low,
+    // MREQ high, and RD/WR both inactive.  TV80 handles the IM 1 opcode
+    // internally (it supplies RST 38h), so this cycle must not be presented
+    // as an ordinary Wishbone I/O read.  Otherwise the SoC would wait for a
+    // byte from the raw I/O bridge during every interrupt acknowledge.
+    wire int_ack = ~m1_n & ~iorq_n & mreq_n;
+    assign wbm_stb_o = (~wr_n | ~rd_n) & (~mreq_n | ~iorq_n | ~m1_n) & !int_ack;
     assign wbm_cyc_o = wbm_stb_o;
     assign wbm_tga_o = (~iorq_n ? `TAG_IO : `TAG_MEM);
 
