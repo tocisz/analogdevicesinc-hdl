@@ -17,7 +17,11 @@ create_project -force fifo_wedge_sim . -part $part
 
 set use_behav 0
 if {[info exists env(USE_BEHAV)]} { set use_behav $env(USE_BEHAV) }
-if {!$use_behav} {
+set use_lite 0
+if {[info exists env(USE_LITE)]} { set use_lite $env(USE_LITE) }
+# USE_LITE and USE_BEHAV are mutually exclusive; USE_LITE wins if both set
+if {$use_lite} { set use_behav 0 }
+if {!$use_behav && !$use_lite} {
   create_ip -name axi_fifo_mm_s -vendor xilinx.com -library ip \
       -module_name axi_fifo_mm_s_sim
   set ip [get_ips axi_fifo_mm_s_sim]
@@ -33,7 +37,14 @@ if {!$use_behav} {
 
 add_files -fileset sources_1 [list \
     ../axis_byte_bridge/axis_byte_bridge.sv]
-if {$use_behav} {
+if {$use_lite} {
+  add_files -fileset sim_1 [list \
+      ../axis_byte_bridge/axis_byte_bridge.sv \
+      ../axi_fifo_lite/axi_fifo_lite.sv \
+      ../z80_soc/rtl/acia68b50/acia68b50.sv \
+      axi_fifo_lite_sim.sv \
+      tb_fifo_wedge.sv]
+} elseif {$use_behav} {
   add_files -fileset sim_1 [list \
       ../axis_byte_bridge/axis_byte_bridge.sv \
       ../z80_soc/rtl/acia68b50/acia68b50.sv \

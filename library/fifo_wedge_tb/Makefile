@@ -12,8 +12,8 @@ sim: sim.log
 	@echo "=== tail of sim.log ==="
 	@tail -25 sim.log
 
-sim.log: tb_fifo_wedge.sv $(BRIDGE_SV) $(ACIA_SV) run.tcl
-	RX_CUT=$(RX_CUT) PLUSARGS="$(PLUSARGS)" \
+sim.log: tb_fifo_wedge.sv $(BRIDGE_SV) $(ACIA_SV) run.tcl axi_fifo_behav.sv axi_fifo_lite_sim.sv ../axi_fifo_lite/axi_fifo_lite.sv
+	RX_CUT=$(RX_CUT) USE_BEHAV=$(USE_BEHAV) USE_LITE=$(USE_LITE) PLUSARGS="$(PLUSARGS)" \
 		vivado -mode batch -source run.tcl -journal vivado.jou -log vivado.log | tee sim.log
 
 # GUI wave viewer for a finished run
