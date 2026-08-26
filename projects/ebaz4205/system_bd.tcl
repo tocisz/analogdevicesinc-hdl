@@ -298,15 +298,12 @@ ad_connect z80_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
 
 ### PS↔PL byte-stream bridge + z80_soc (AXI-Stream FIFO + byte adapter + Z80)
 
-ad_ip_instance axi_fifo_mm_s axi_fifo_mm_s_0
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_DATA_INTERFACE_TYPE 0
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_DATA 1
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_RX_DATA 1
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_CTRL 0
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_TX_FIFO_DEPTH 1024
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_RX_FIFO_DEPTH 1024
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_TX_CUT_THROUGH 0
-ad_ip_parameter axi_fifo_mm_s_0 CONFIG.C_USE_RX_CUT_THROUGH 0
+# axi_fifo_lite — behavioral drop-in for Xilinx axi_fifo_mm_s (PG080).
+# Fixes 1.9k-packet wedge at TLAST=1 / 1024 depth
+# (doc/Z80_FIFO_WEDGE_INVESTIGATION.md §5b). Same 0x7C450000 map / ports as
+# axis_fifo.ko expects; keep instance name axi_fifo_mm_s_0 so DT
+# compatible="xlnx,axi-fifo-mm-s-4.1" is unchanged.
+ad_ip_instance axi_fifo_lite axi_fifo_mm_s_0
 ad_connect sys_cpu_clk axi_fifo_mm_s_0/s_axi_aclk
 ad_connect sys_cpu_resetn axi_fifo_mm_s_0/s_axi_aresetn
 

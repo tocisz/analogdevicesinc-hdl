@@ -15,5 +15,6 @@ LIB_DEPS += axi_dmac
 LIB_DEPS += z80_soc
 LIB_DEPS += axis_byte_bridge
 LIB_DEPS += axi_gpreg
+LIB_DEPS += axi_fifo_lite
 
 include ../scripts/project-xilinx.mk
