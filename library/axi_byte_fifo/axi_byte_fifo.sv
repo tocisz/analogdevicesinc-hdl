@@ -1,10 +1,15 @@
 `default_nettype none
 `timescale 1 ns / 1 ps
 
-// axi_fifo_lite — drop-in replacement for Xilinx axi_fifo_mm_s (PG080)
-// for the Z80 term path (doc/Z80_FIFO_WEDGE_INVESTIGATION.md §5b).
+// axi_byte_fifo — byte-stream AXI-MM ↔ AXIS FIFO (DEPTH=1024 bytes)
+// Replaces axi_fifo_lite / Xilinx axi_fifo_mm_s for the Z80 term path.
+// See doc/AXI_BYTE_FIFO_PLAN.md. Byte = atomic value, no packets.
+//
+// Register map @ 0x7C450000 (same offsets as axi_fifo_lite for driver
+// compat where they overlap). TDATA is now 8-bit, TLAST deleted.
+// TLR(0x14)/RLR(0x24) return 0 (no packet), writes ignored.
 
-module axi_fifo_lite (
+module axi_byte_fifo (
   input  wire        s_axi_aclk,
   input  wire        s_axi_aresetn,
   output wire        interrupt,
@@ -28,13 +33,11 @@ module axi_fifo_lite (
   output wire        mm2s_prmry_reset_out_n,
   output logic       axi_str_txd_tvalid,
   input  wire        axi_str_txd_tready,
-  output logic       axi_str_txd_tlast,
-  output logic [31:0] axi_str_txd_tdata,
+  output logic [7:0] axi_str_txd_tdata,
   output wire        s2mm_prmry_reset_out_n,
   input  wire        axi_str_rxd_tvalid,
   output logic       axi_str_rxd_tready,
-  input  wire        axi_str_rxd_tlast,
-  input  wire [31:0] axi_str_rxd_tdata
+  input  wire [7:0]  axi_str_rxd_tdata
 );
   localparam A_ISR=7'h00, A_IER=7'h04, A_TDFR=7'h08, A_TDFV=7'h0C,
              A_TDFD=7'h10, A_TLR=7'h14, A_RDFR=7'h18, A_RDFO=7'h1C,
@@ -45,12 +48,11 @@ module axi_fifo_lite (
   assign mm2s_prmry_reset_out_n = s_axi_aresetn;
   assign s2mm_prmry_reset_out_n = s_axi_aresetn;
 
-  logic [31:0] rx_mem[DEPTH];
-  logic [31:0] tx_mem[DEPTH];
+  logic [7:0] rx_mem[DEPTH];
+  logic [7:0] tx_mem[DEPTH];
 
   int rx_wptr, rx_rptr, rx_cnt;
   int tx_wptr, tx_rptr, tx_cnt;
-  int tx_pending_cnt;
   logic [31:0] ier_r;
   logic [31:0] isr_r;
 
@@ -61,7 +63,7 @@ module axi_fifo_lite (
   logic [31:0] rdata_r;
 
   logic txd_valid_q;
-  logic [31:0] txd_data_q;
+  logic [7:0] txd_data_q;
 
   assign s_axi_awready = !aw_done;
   assign s_axi_wready  = !w_done;
@@ -73,35 +75,28 @@ module axi_fifo_lite (
   assign s_axi_rdata   = rdata_r;
   assign axi_str_txd_tvalid = txd_valid_q;
   assign axi_str_txd_tdata  = txd_data_q;
-  assign axi_str_txd_tlast  = 1'b1;
   assign axi_str_rxd_tready = (rx_cnt < DEPTH);
 
-  // Single-driver: all state in one clocked process (fixes Vivado DRC MDRV-1).
-  // Previously rx_cnt/tx_cnt etc were driven from 4 separate always_ff
-  // blocks — legal in xsim (last assignment wins) but DRC flags as
-  // multiple-driver nets and aborts opt_design.  Merged here.
-  // RX ingest (PL→PS burst) and RDFD pop (PS read) can coincide on the
-  // same 80 MHz cycle; they are handled together so no packet is lost
-  // (net-zero count, both pointers advance) — small 1-cycle latency is OK.
+  // Single-driver: all state in one clocked process (Vivado DRC MDRV-1).
+  // RX ingest (PL→PS) and RDFD pop (PS read) can coincide on the same
+  // 80 MHz cycle; handled together so no byte is lost (net-zero count,
+  // both pointers advance).
   always_ff @(posedge s_axi_aclk) begin
     if (!s_axi_aresetn) begin
       rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
       tx_wptr<=0; tx_rptr<=0; tx_cnt<=0;
-      tx_pending_cnt<=0;
       ier_r<=32'd0;
       isr_r<=32'h01D00000;
       aw_done<=1'b0; w_done<=1'b0; bvalid_r<=1'b0;
       awaddr_r<=7'd0; wdata_r<=32'd0;
       ar_done<=1'b0; rvalid_r<=1'b0; rdata_r<=32'd0; araddr_r<=7'd0;
-      txd_valid_q<=1'b0; txd_data_q<=32'd0;
+      txd_valid_q<=1'b0; txd_data_q<=8'd0;
     end else begin
       if (s_axi_awvalid && !aw_done) begin awaddr_r<=s_axi_awaddr[6:0]; aw_done<=1'b1; end
       if (s_axi_wvalid  && !w_done)  begin wdata_r<=s_axi_wdata; w_done<=1'b1; end
       if (s_axi_arvalid && !ar_done) begin araddr_r<=s_axi_araddr[6:0]; ar_done<=1'b1; end
 
-      // RX ingest + RDFD pop together — lossless (no last-wins clobber).
-      // ar_done is registered one cycle after AR, so a PS read and a PL
-      // push can land on the same s_axi_aclk edge during bursts.
+      // RX ingest + RDFD pop together — lossless
       begin
         logic do_ingest, is_rdfd, do_pop;
         do_ingest = axi_str_rxd_tvalid && (rx_cnt < DEPTH);
@@ -110,13 +105,12 @@ module axi_fifo_lite (
         if (is_rdfd) begin
           if (do_ingest && do_pop) begin
             rx_mem[rx_wptr] <= axi_str_rxd_tdata;
-            rdata_r <= rx_mem[rx_rptr];
+            rdata_r <= {24'd0, rx_mem[rx_rptr]};
             rx_wptr <= (rx_wptr+1)%DEPTH;
             rx_rptr <= (rx_rptr+1)%DEPTH;
-            // net 0
             rvalid_r <= 1'b1;
           end else if (do_pop) begin
-            rdata_r <= rx_mem[rx_rptr];
+            rdata_r <= {24'd0, rx_mem[rx_rptr]};
             rx_rptr <= (rx_rptr+1)%DEPTH;
             rx_cnt <= rx_cnt-1;
             rvalid_r <= 1'b1;
@@ -146,25 +140,22 @@ module axi_fifo_lite (
           A_TDFR, A_RDFR, A_SRR: if (wdata_r[7:0]==8'hA5) begin
             if (awaddr_r==A_SRR) begin
               rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
-              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
+              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; txd_valid_q<=1'b0;
               isr_r <= 32'h01D80000;
             end else if (awaddr_r==A_TDFR) begin
-              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
+              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; txd_valid_q<=1'b0;
               isr_r <= isr_r | 32'h01000000;
             end else begin
               rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
               isr_r <= isr_r | 32'h00800000;
             end
           end
-          A_TDFD: if (tx_pending_cnt<128) begin
-            tx_mem[(tx_wptr + tx_pending_cnt) % DEPTH] <= wdata_r;
-            tx_pending_cnt <= tx_pending_cnt + 1;
+          A_TDFD: if (tx_cnt < DEPTH) begin
+            tx_mem[tx_wptr] <= wdata_r[7:0];
+            tx_wptr <= (tx_wptr+1)%DEPTH;
+            tx_cnt <= tx_cnt+1;
           end
-          A_TLR: begin
-            tx_wptr    <= (tx_wptr + tx_pending_cnt) % DEPTH;
-            tx_cnt     <= tx_cnt + tx_pending_cnt;
-            tx_pending_cnt <= 0;
-          end
+          A_TLR, A_RLR: ; // deleted: writes ignored, reads return 0
           default: ;
         endcase
         bvalid_r <= 1'b1;
@@ -173,16 +164,16 @@ module axi_fifo_lite (
 
       // Remaining AXI reads (RDFD already handled above together with ingest)
       if (ar_done && !rvalid_r) begin
-        // skip if RDFD was already completed in the combined RX block
         if (araddr_r == A_RDFD) begin
-          // already handled — do nothing (rvalid already set if needed)
+          // already handled
         end else begin
           case (araddr_r)
             A_ISR:  rdata_r <= isr_r;
             A_IER:  rdata_r <= ier_r;
-            A_TDFV: rdata_r <= DEPTH - tx_cnt - tx_pending_cnt;
+            A_TDFV: rdata_r <= DEPTH - tx_cnt;
             A_RDFO: rdata_r <= rx_cnt;
-            A_RLR:  rdata_r <= (rx_cnt>0) ? 32'd4 : 32'd0; // lite: always 4B/beats, was rx_len_mem[]
+            A_TLR:  rdata_r <= 32'd0;
+            A_RLR:  rdata_r <= 32'd0;
             default: rdata_r <= 32'd0;
           endcase
           rvalid_r <= 1'b1;

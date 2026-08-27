@@ -24,18 +24,15 @@ THE SOFTWARE.
 `timescale 1 ns / 1 ps
 
 // ==========================================================================
-// tb_axis_byte_bridge — focused testbench for the drop-24 byte bridge
+// tb_axis_byte_bridge — focused testbench for the byte-stream bridge
 // ==========================================================================
-// The AXI-Stream FIFO (axi_fifo_mm_s) and its handshakes are proven Xilinx
-// IP; this TB only pins down the adapter's own contract:
-//   Test 1 — PS→PL: one byte per word, upper 24 bits dropped, rx_accept
-//            backpressure holds M_AXIS (tready deasserts, word retained).
-//   Test 2 — PL→PS: tx_valid strobe captured into the 1-deep stage even
-//            while S_AXIS is blocked (tready=0); drained when tready rises;
-//            TLAST per word, upper 24 bits zeroed.
-//   Test 3 — back-to-back bytes both directions (order + zero loss).
-//
-// Data is sampled at negedge (mid-cycle), never after the transfer posedge.
+// Updated for axi_byte_fifo: 8-bit TDATA, no TLAST/TLR/RLR.
+// Tests:
+//   Test 1 — PS→PL: byte pass-through, rx_accept backpressure holds M_AXIS
+//   Test 2 — PL→PS: tx_valid strobe captured into 1-deep stage even while
+//            S_AXIS blocked (tready=0); drained when tready rises
+//   Test 3 — back-to-back bytes both directions (order + zero loss)
+//   Test 4 — RTS stalls PS→PL but not PL→PS (separate FIFOs)
 // ==========================================================================
 
 module tb_axis_byte_bridge;
@@ -43,17 +40,15 @@ module tb_axis_byte_bridge;
   logic        clk;
   logic        reset;
 
-  // M_AXIS (PS→PL)
+  // M_AXIS (PS→PL) — 8-bit
   logic        m_axis_tvalid;
   logic        m_axis_tready;
-  logic [31:0] m_axis_tdata;
-  logic        m_axis_tlast;
+  logic [7:0]  m_axis_tdata;
 
-  // S_AXIS (PL→PS)
+  // S_AXIS (PL→PS) — 8-bit
   logic        s_axis_tvalid;
   logic        s_axis_tready;
-  logic [31:0] s_axis_tdata;
-  logic        s_axis_tlast;
+  logic [7:0]  s_axis_tdata;
 
   // Byte side
   logic [7:0]  rx_data;
@@ -70,11 +65,9 @@ module tb_axis_byte_bridge;
       .m_axis_tvalid(m_axis_tvalid),
       .m_axis_tready(m_axis_tready),
       .m_axis_tdata (m_axis_tdata),
-      .m_axis_tlast (m_axis_tlast),
       .s_axis_tvalid(s_axis_tvalid),
       .s_axis_tready(s_axis_tready),
       .s_axis_tdata (s_axis_tdata),
-      .s_axis_tlast (s_axis_tlast),
       .rx_data      (rx_data),
       .rx_valid     (rx_valid),
       .rx_accept    (rx_accept),
@@ -89,12 +82,10 @@ module tb_axis_byte_bridge;
   int pass_count = 0;
   int fail_count = 0;
 
-  // Push a word on M_AXIS and verify the byte-side pass-through.
-  task static m_axis_send(input logic [31:0] word, input logic [7:0] exp_val);
+  task static m_axis_send(input logic [7:0] exp_val);
     begin
       m_axis_tvalid = 1'b1;
-      m_axis_tdata  = word;
-      m_axis_tlast  = 1'b0;  // ignored in v1
+      m_axis_tdata  = exp_val;
       while (!m_axis_tready) @(posedge clk);
       @(negedge clk);
       if (rx_valid !== 1'b1 || rx_data !== exp_val) begin
@@ -110,10 +101,6 @@ module tb_axis_byte_bridge;
     end
   endtask
 
-  // Fire one tx_valid strobe with the given byte.  Ends right after the
-  // strobe posedge — the stage presents the byte for exactly the next cycle,
-  // which s_axis_expect must observe (a trailing posedge here would let the
-  // bridge drain the 1-deep stage first).
   task static tx_strobe(input logic [7:0] val);
     begin
       @(negedge clk);
@@ -125,17 +112,13 @@ module tb_axis_byte_bridge;
     end
   endtask
 
-  // Wait for a presented word on S_AXIS and verify data/tlast as it pops.
   task static s_axis_expect(input logic [7:0] val);
     begin
       while (!(s_axis_tvalid && s_axis_tready)) @(posedge clk);
       @(negedge clk);
-      if (s_axis_tdata[7:0] !== val || s_axis_tdata[31:8] !== 24'd0) begin
-        $display("  ✗ FAIL: S_AXIS tdata=0x%08h, expected low byte 0x%02h zero-extended",
+      if (s_axis_tdata !== val) begin
+        $display("  ✗ FAIL: S_AXIS tdata=0x%02h, expected 0x%02h",
                  s_axis_tdata, val);
-        fail_count = fail_count + 1;
-      end else if (s_axis_tlast !== 1'b1) begin
-        $display("  ✗ FAIL: S_AXIS TLAST not asserted per word");
         fail_count = fail_count + 1;
       end else begin
         pass_count = pass_count + 1;
@@ -146,14 +129,13 @@ module tb_axis_byte_bridge;
 
   initial begin
     $display("═══════════════════════════════════════════");
-    $display("  axis_byte_bridge v1 (drop-24) — focused TB");
+    $display("  axis_byte_bridge (8-bit, no TLAST) — TB");
     $display("═══════════════════════════════════════════");
 
     clk = 1'b0;
     reset = 1'b1;
     m_axis_tvalid = 1'b0;
-    m_axis_tdata  = 32'd0;
-    m_axis_tlast  = 1'b0;
+    m_axis_tdata  = 8'd0;
     s_axis_tready = 1'b1;
     rx_accept     = 1'b1;
     tx_valid      = 1'b0;
@@ -162,19 +144,19 @@ module tb_axis_byte_bridge;
     reset = 1'b0;
     repeat (5) @(posedge clk);
 
-    // ── Test 1: PS→PL pass-through, upper 24 bits dropped ──
+    // ── Test 1: PS→PL pass-through ──
     $display("");
     $display("──────────────────────────────────────────");
-    $display("TEST 1: PS→PL pass-through (upper 24 dropped)");
+    $display("TEST 1: PS→PL pass-through");
     $display("──────────────────────────────────────────");
     rx_accept = 1'b1;
-    m_axis_send(32'hABCD_EF41, 8'h41);  // garbage in upper 24 bits
-    m_axis_send(32'h0000_007A, 8'h7A);
+    m_axis_send(8'h41);
+    m_axis_send(8'h7A);
 
-    // rx_accept low must deassert tready and hold the word, not drop it
+    // rx_accept low must deassert tready and hold the byte, not drop it
     rx_accept = 1'b0;
     m_axis_tvalid = 1'b1;
-    m_axis_tdata  = 32'h0000_0061;
+    m_axis_tdata  = 8'h61;
     @(posedge clk);
     if (m_axis_tready !== 1'b0) begin
       $display("  ✗ FAIL: m_axis_tready high while rx_accept low");
@@ -182,10 +164,10 @@ module tb_axis_byte_bridge;
     end else begin
       pass_count = pass_count + 1;
     end
-    repeat (3) @(posedge clk);  // word held
+    repeat (3) @(posedge clk);  // byte held
     @(negedge clk);
     if (rx_valid !== 1'b1 || rx_data !== 8'h61) begin
-      $display("  ✗ FAIL: held word corrupted (rx=0x%02h)", rx_data);
+      $display("  ✗ FAIL: held byte corrupted (rx=0x%02h)", rx_data);
       fail_count = fail_count + 1;
     end else begin
       pass_count = pass_count + 1;
@@ -193,7 +175,7 @@ module tb_axis_byte_bridge;
     rx_accept = 1'b1;           // drain
     @(posedge clk);
     if (!(m_axis_tvalid && m_axis_tready)) begin
-      $display("  ✗ FAIL: word not drained on rx_accept rise");
+      $display("  ✗ FAIL: byte not drained on rx_accept rise");
       fail_count = fail_count + 1;
     end else begin
       pass_count = pass_count + 1;
@@ -216,8 +198,8 @@ module tb_axis_byte_bridge;
     end
     repeat (3) @(posedge clk);  // stage holds the byte
     @(negedge clk);
-    if (s_axis_tdata[7:0] !== 8'h42 || s_axis_tdata[31:8] !== 24'd0 || s_axis_tlast !== 1'b1) begin
-      $display("  ✗ FAIL: held stage word wrong (tdata=0x%08h)", s_axis_tdata);
+    if (s_axis_tdata !== 8'h42) begin
+      $display("  ✗ FAIL: held stage byte wrong (tdata=0x%02h)", s_axis_tdata);
       fail_count = fail_count + 1;
     end else begin
       pass_count = pass_count + 1;
@@ -236,7 +218,7 @@ module tb_axis_byte_bridge;
     $display("──────────────────────────────────────────");
     rx_accept = 1'b1;
     for (int i = 0; i < 8; i = i + 1) begin
-      m_axis_send({24'd0, 8'(i + 1)}, 8'(i + 1));
+      m_axis_send(8'(i + 1));
       tx_strobe(8'hA0 + 8'(i));
       s_axis_expect(8'hA0 + 8'(i));
     end
@@ -249,7 +231,7 @@ module tb_axis_byte_bridge;
     rx_rts_n = 1'b1; // assert RTS (Z80 serBuf full) - should hide data and stall
     rx_accept = 1'b1;
     m_axis_tvalid = 1'b1;
-    m_axis_tdata  = 32'h0000_00AA;
+    m_axis_tdata  = 8'hAA;
     repeat (2) @(posedge clk);
     @(negedge clk);
     if (m_axis_tready !== 1'b0) begin
@@ -264,14 +246,14 @@ module tb_axis_byte_bridge;
     s_axis_tready = 1'b1;
     tx_strobe(8'hCC);
     s_axis_expect(8'hCC);
-    // Deassert RTS: stalled word must appear exactly once
+    // Deassert RTS: stalled byte must appear exactly once
     rx_rts_n = 1'b0;
     @(posedge clk);
     @(negedge clk);
     if (rx_valid !== 1'b1 || rx_data !== 8'hAA) begin
       $display("  ✗ FAIL: after RTS clear rx_valid=%b rx_data=0x%02h exp AA", rx_valid, rx_data);
       fail_count = fail_count + 1;
-    end else begin pass_count = pass_count + 1; $display("  PASS: RTS clear exposes stalled word"); end
+    end else begin pass_count = pass_count + 1; $display("  PASS: RTS clear exposes stalled byte"); end
     if (m_axis_tready !== 1'b1) begin
       $display("  ✗ FAIL: after RTS clear tready=%b (expected 1)", m_axis_tready);
       fail_count = fail_count + 1;
@@ -291,7 +273,6 @@ module tb_axis_byte_bridge;
     $finish;
   end
 
-  // Watchdog — never let a deadlock hang the sim
   initial begin
     #100_000;
     $display("  ⚠ TIMEOUT: testbench stalled");

@@ -40,7 +40,7 @@ add_files -fileset sources_1 [list \
 if {$use_lite} {
   add_files -fileset sim_1 [list \
       ../axis_byte_bridge/axis_byte_bridge.sv \
-      ../axi_fifo_lite/axi_fifo_lite.sv \
+      ../axi_byte_fifo/axi_byte_fifo.sv \
       ../z80_soc/rtl/acia68b50/acia68b50.sv \
       axi_fifo_lite_sim.sv \
       tb_fifo_wedge.sv]

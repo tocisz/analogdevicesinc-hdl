@@ -2,10 +2,8 @@
 source ../../scripts/adi_env.tcl
 source $ad_hdl_dir/library/scripts/adi_ip_xilinx.tcl
 
-# axis_byte_bridge v1 — drop-24 byte bridge between a 32-bit AXI-Stream
-# FIFO (axi_fifo_mm_s) and an 8-bit parallel byte handshake (bf2_soc
-# io_rx_* / io_tx_*).  m_axis = stream slave (PS→PL), s_axis = stream
-# master (PL→PS).
+# axis_byte_bridge — byte-stream bridge for axi_byte_fifo (8-bit TDATA, no TLAST)
+# See doc/AXI_BYTE_FIFO_PLAN.md. PS↔PL (axi_byte_fifo 8-bit) ↔ z80_soc io_*.
 adi_ip_create axis_byte_bridge
 adi_ip_files axis_byte_bridge [list \
   "axis_byte_bridge.sv" ]
@@ -19,7 +17,6 @@ adi_add_bus "m_axis" "slave" \
 		{"m_axis_tvalid" "TVALID"} \
 		{"m_axis_tready" "TREADY"} \
 		{"m_axis_tdata" "TDATA"} \
-		{"m_axis_tlast" "TLAST"} \
 	}
 
 adi_add_bus "s_axis" "master" \
@@ -29,7 +26,6 @@ adi_add_bus "s_axis" "master" \
 		{"s_axis_tvalid" "TVALID"} \
 		{"s_axis_tready" "TREADY"} \
 		{"s_axis_tdata" "TDATA"} \
-		{"s_axis_tlast" "TLAST"} \
 	}
 
 adi_add_bus_clock "clk" "m_axis:s_axis" "reset"

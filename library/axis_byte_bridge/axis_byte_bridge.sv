@@ -24,54 +24,49 @@ THE SOFTWARE.
 `timescale 1 ns / 1 ps
 
 // ==========================================================================
-// axis_byte_bridge — PS↔PL byte-stream bridge over a 32-bit AXI-Stream FIFO
+// axis_byte_bridge — PS↔PL byte-stream bridge for axi_byte_fifo
 // ==========================================================================
-// v1 ("drop-24"): each 32-bit stream word carries ONE byte in bits [7:0];
-// the upper 24 bits are dropped on the PS→PL path and driven to 0 on the
-// PL→PS path.  No pack/unpack logic — the simplest correct adapter.
+// Byte-stream bridge over an 8-bit AXIS FIFO (axi_byte_fifo, DEPTH=1024).
+// Replaces v1 drop-24 (32-bit word with 24 bits dropped) — now true 8-bit
+// TDATA per beat, no TLAST. See doc/AXI_BYTE_FIFO_PLAN.md.
 //
-//   PS→PL (M_AXIS slave, from axi_fifo_mm_s):
-//     Pure combinational pass-through of the low byte.  The transfer
-//     completes only when m_axis_tvalid && m_axis_tready (== rx_accept)
-//     coincide, so rx_accept dropping mid-word just defers the transfer —
-//     loss-free, no FIFO, no state.
+//   PS→PL (M_AXIS slave, from axi_byte_fifo):
+//     Pure combinational pass-through of the byte. Transfer completes
+//     only when m_axis_tvalid && m_axis_tready (== rx_accept) coincide,
+//     so rx_accept dropping mid-beat just defers the transfer — loss-free,
+//     no FIFO, no state.
 //
-//   PL→PS (S_AXIS master, to axi_fifo_mm_s):
-//     1-deep staging register.  io_tx_valid is a single-cycle strobe and
+//   PL→PS (S_AXIS master, to axi_byte_fifo):
+//     1-deep staging register. io_tx_valid is a single-cycle strobe and
 //     s_axis_tready may be low exactly when it fires (RX FIFO just filled),
-//     so capture every strobe and hold it on S_AXIS until tready.  tx_ready
-//     mirrors s_axis_tready; the byte source (bf2_soc / case_toggle) stalls
-//     while io_wr_pending && !io_tx_ready, so while the stage is blocked no
-//     new byte can arrive.  TLAST is asserted per word (one word = one
-//     packet, RLR per byte).
+//     so capture every strobe and hold it on S_AXIS until tready. tx_ready
+//     mirrors s_axis_tready; the byte source stalls while the stage is
+//     blocked, so no new byte can arrive while held.
 //
-// The byte-side contract mirrors uart_phy's parallel interface (and
-// bf2_soc's io_rx_* / io_tx_* handshake):
+// The byte-side contract mirrors uart_phy's parallel interface:
 //   rx_accept  — level; drains one byte per cycle while high
 //   tx_valid   — single-cycle strobe
 //
-// See doc/AXIS_FIFO_BRIDGE.md for the full design (v2 byte-packer deferred).
+// RTS/CTS (z80_soc serBuf flow control):
+//   rx_rts_n = 1 (Z80 serBuf ≥48) masks PS→PL (rdrf). PL→PS uses the
+//   independent RX FIFO, so its backpressure (tx_ready=s_axis_tready) is CTS.
 // ==========================================================================
 
 module axis_byte_bridge (
   input  wire        clk,          // sys_cpu_clk
   input  wire        reset,        // active high
 
-  // M_AXIS slave (PS→PL, from axi_fifo_mm_s)
-  /* verilator lint_off UNUSEDSIGNAL */ // upper 24 bits dropped / tlast ignored in v1
+  // M_AXIS slave (PS→PL, from axi_byte_fifo)
   input  wire        m_axis_tvalid,
   output wire        m_axis_tready,
-  input  wire [31:0] m_axis_tdata,
-  input  wire        m_axis_tlast,
-  /* verilator lint_on UNUSEDSIGNAL */
+  input  wire [7:0]  m_axis_tdata,
 
-  // S_AXIS master (PL→PS, to axi_fifo_mm_s)
+  // S_AXIS master (PL→PS, to axi_byte_fifo)
   output wire        s_axis_tvalid,
   input  wire        s_axis_tready,
-  output wire [31:0] s_axis_tdata,
-  output wire        s_axis_tlast,
+  output wire [7:0]  s_axis_tdata,
 
-  // Byte side (bf2_soc io_rx_* / io_tx_* semantics)
+  // Byte side (z80_soc io_rx_* / io_tx_* semantics)
   output wire [7:0]  rx_data,      // → io_rx_data
   output wire        rx_valid,     // → io_rx_valid
   input  wire        rx_accept,    // ← io_rx_ready (drain level)
@@ -81,15 +76,11 @@ module axis_byte_bridge (
   input  wire        rx_rts_n      // ← ACIA RTS (1=Z80 serBuf full, stall PS→PL)
 );
 
-  // ── PS→PL: pass-through of the low byte; upper 24 bits dropped.
-  // RTS flow-control: when Z80 firmware asserts RTS (serBuf ≥48, cr_tx_ctrl=10),
-  // mask RDRF (rx_valid) and stall AXIS handshake. Both gated — gating only
-  // tready would leave rx_valid=1 with the same byte held → spurious RDRF IRQ
-  // and duplicate IN ($81) / rx_consume → overflow. Gating both keeps the
-  // stalled word in the upstream TX FIFO (1024 deep, separate from RX FIFO)
-  // and preserves exact-once delivery after RTS clears. PL→PS (tx_*) uses the
-  // independent RX FIFO, so its backpressure (tx_ready=s_axis_tready) is CTS.
-  assign rx_data       = m_axis_tdata[7:0];
+  // ── PS→PL: pass-through byte; RTS gating both sides.
+  // When Z80 firmware asserts RTS (serBuf ≥48), mask RDRF (rx_valid) and
+  // stall AXIS handshake. Both gated — gating only tready would leave
+  // rx_valid=1 with held byte → spurious RDRF IRQ and duplicate IN.
+  assign rx_data       = m_axis_tdata;
   assign rx_valid      = m_axis_tvalid && !rx_rts_n;
   assign m_axis_tready = rx_accept && !rx_rts_n;
 
@@ -97,9 +88,8 @@ module axis_byte_bridge (
   logic       tx_stage_valid;
   logic [7:0] tx_stage_data;
 
-  assign s_axis_tdata  = {24'd0, tx_stage_data};
+  assign s_axis_tdata  = tx_stage_data;
   assign s_axis_tvalid = tx_stage_valid;
-  assign s_axis_tlast  = 1'b1;  // one word = one packet (RLR per byte)
   assign tx_ready      = s_axis_tready;
 
   always_ff @(posedge clk) begin
@@ -108,7 +98,7 @@ module axis_byte_bridge (
     end else begin
       if (tx_valid) begin
         tx_stage_data  <= tx_data;
-        tx_stage_valid <= 1'b1;  // overwrite: strobe always wins
+        tx_stage_valid <= 1'b1;  // strobe always wins
       end else if (s_axis_tready) begin
         tx_stage_valid <= 1'b0;  // drained
       end

@@ -2,15 +2,13 @@
 source ../../scripts/adi_env.tcl
 source $ad_hdl_dir/library/scripts/adi_ip_xilinx.tcl
 
-# axi_fifo_lite — behavioral replacement for Xilinx axi_fifo_mm_s
-# for the Z80 term path. Same register map and AXIS ports, correct
-# occupancy handling (fixes wedge/phantom described in
-# doc/Z80_FIFO_WEDGE_INVESTIGATION.md §5b).
-adi_ip_create axi_fifo_lite
-adi_ip_files axi_fifo_lite [list \
-  "axi_fifo_lite.sv" ]
+# axi_byte_fifo — byte-stream AXI-MM ↔ AXIS FIFO (DEPTH=1024 bytes)
+# See doc/AXI_BYTE_FIFO_PLAN.md. Replaces axi_fifo_lite: 8-bit TDATA, no TLAST/TLR/RLR.
+adi_ip_create axi_byte_fifo
+adi_ip_files axi_byte_fifo [list \
+  "axi_byte_fifo.sv" ]
 
-adi_ip_properties_lite axi_fifo_lite
+adi_ip_properties_lite axi_byte_fifo
 
 adi_add_bus "s_axi" "slave" \
   "xilinx.com:interface:aximm_rtl:1.0" \
@@ -42,7 +40,6 @@ adi_add_bus "axi_str_txd" "master" \
     {"axi_str_txd_tvalid" "TVALID"} \
     {"axi_str_txd_tready" "TREADY"} \
     {"axi_str_txd_tdata" "TDATA"} \
-    {"axi_str_txd_tlast" "TLAST"} \
   }
 
 adi_add_bus "axi_str_rxd" "slave" \
@@ -52,7 +49,6 @@ adi_add_bus "axi_str_rxd" "slave" \
     {"axi_str_rxd_tvalid" "TVALID"} \
     {"axi_str_rxd_tready" "TREADY"} \
     {"axi_str_rxd_tdata" "TDATA"} \
-    {"axi_str_rxd_tlast" "TLAST"} \
   }
 
 adi_add_bus_clock "s_axi_aclk" "s_axi:axi_str_txd:axi_str_rxd" "s_axi_aresetn:mm2s_prmry_reset_out_n:s2mm_prmry_reset_out_n"

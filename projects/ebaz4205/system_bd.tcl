@@ -298,25 +298,25 @@ ad_connect z80_soc_0/ctrl_gp2_in  bf2_ctrl/up_gp_in_2
 
 ### PS↔PL byte-stream bridge + z80_soc (AXI-Stream FIFO + byte adapter + Z80)
 
-# axi_fifo_lite — behavioral drop-in for Xilinx axi_fifo_mm_s (PG080).
-# Fixes 1.9k-packet wedge at TLAST=1 / 1024 depth
-# (doc/Z80_FIFO_WEDGE_INVESTIGATION.md §5b). Same 0x7C450000 map / ports as
-# axis_fifo.ko expects; keep instance name axi_fifo_mm_s_0 so DT
-# compatible="xlnx,axi-fifo-mm-s-4.1" is unchanged.
-ad_ip_instance axi_fifo_lite axi_fifo_mm_s_0
-ad_connect sys_cpu_clk axi_fifo_mm_s_0/s_axi_aclk
-ad_connect sys_cpu_resetn axi_fifo_mm_s_0/s_axi_aresetn
+# axi_byte_fifo — byte-stream FIFO (DEPTH=1024, 8-bit TDATA, no TLAST/TLR/RLR).
+# See doc/AXI_BYTE_FIFO_PLAN.md. Byte = atomic value, saves 75% BRAM.
+# Replaces axi_fifo_lite (32-bit drop-24) / Xilinx axi_fifo_mm_s wedge.
+# Same 0x7C450000 map; instance now axi_byte_fifo_0, DT
+# compatible="xlnx,axi-byte-fifo-1.0", device /dev/axi_byte_fifo_0x7c450000.
+ad_ip_instance axi_byte_fifo axi_byte_fifo_0
+ad_connect sys_cpu_clk axi_byte_fifo_0/s_axi_aclk
+ad_connect sys_cpu_resetn axi_byte_fifo_0/s_axi_aresetn
 
-ad_cpu_interconnect 0x7C450000 axi_fifo_mm_s_0
-ad_cpu_interrupt ps-14 mb-14 axi_fifo_mm_s_0/interrupt
+ad_cpu_interconnect 0x7C450000 axi_byte_fifo_0
+ad_cpu_interrupt ps-14 mb-14 axi_byte_fifo_0/interrupt
 
-# axis_byte_bridge v1 (drop-24): 32-bit stream words ↔ 8-bit byte handshake
+# axis_byte_bridge — 8-bit byte bridge (axi_byte_fifo 8-bit ↔ z80_soc io_*)
 ad_ip_instance axis_byte_bridge axis_byte_bridge_0
 ad_connect sys_cpu_clk axis_byte_bridge_0/clk
 ad_connect sys_cpu_reset axis_byte_bridge_0/reset
 
-ad_connect axi_fifo_mm_s_0/AXI_STR_TXD axis_byte_bridge_0/m_axis
-ad_connect axis_byte_bridge_0/s_axis axi_fifo_mm_s_0/AXI_STR_RXD
+ad_connect axi_byte_fifo_0/AXI_STR_TXD axis_byte_bridge_0/m_axis
+ad_connect axis_byte_bridge_0/s_axis axi_byte_fifo_0/AXI_STR_RXD
 
 # ── bridge ↔ z80_soc byte handshake ──
 ad_connect axis_byte_bridge_0/rx_data   z80_soc_0/io_rx_data
