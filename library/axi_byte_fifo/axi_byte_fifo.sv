@@ -43,8 +43,12 @@ module axi_byte_fifo (
              A_TDFD=7'h10, A_TLR=7'h14, A_RDFR=7'h18, A_RDFO=7'h1C,
              A_RDFD=7'h20, A_RLR=7'h24, A_SRR=7'h28;
   localparam DEPTH=1024;
+  localparam logic [31:0] INT_RC = 32'h04000000;
 
-  assign interrupt = 1'b0;
+  // The Linux driver waits in poll() on read_queue.  Keep RC latched until
+  // the driver acknowledges it through ISR (W1C), rather than making the
+  // interrupt a level derived directly from rx_cnt (which would retrigger
+  // continuously while the host is draining the FIFO).
   assign mm2s_prmry_reset_out_n = s_axi_aresetn;
   assign s2mm_prmry_reset_out_n = s_axi_aresetn;
 
@@ -56,6 +60,8 @@ module axi_byte_fifo (
   logic [31:0] ier_r;
   logic [31:0] isr_r;
 
+  assign interrupt = |(isr_r & ier_r);
+
   logic aw_done, w_done, ar_done;
   logic [6:0] awaddr_r, araddr_r;
   logic [31:0] wdata_r;
@@ -64,6 +70,20 @@ module axi_byte_fifo (
 
   logic txd_valid_q;
   logic [7:0] txd_data_q;
+
+  // A newly received byte must wake a blocked host poll.  Do not generate
+  // another RC event when RDFD consumes the only byte in the same cycle:
+  // there is then no queued data for the host to read.  These are wires so
+  // the event can be applied after the AXI register case below, preserving
+  // a simultaneous ISR W1C plus new-byte event.
+  wire rx_read_request = ar_done && !rvalid_r && (araddr_r == A_RDFD);
+  wire rx_ingest = axi_str_rxd_tvalid && (rx_cnt < DEPTH);
+  wire rx_event = rx_ingest && (rx_cnt == 0) && !rx_read_request;
+  wire fifo_reset_request = aw_done && w_done && !bvalid_r &&
+                             ((awaddr_r == A_SRR) || (awaddr_r == A_RDFR)) &&
+                             (wdata_r[7:0] == 8'hA5);
+  wire isr_clear_request = aw_done && w_done && !bvalid_r &&
+                           (awaddr_r == A_ISR);
 
   assign s_axi_awready = !aw_done;
   assign s_axi_wready  = !w_done;
@@ -180,6 +200,16 @@ module axi_byte_fifo (
         end
       end
       if (rvalid_r && s_axi_rready) begin rvalid_r<=1'b0; ar_done<=1'b0; end
+
+      // Apply this after the AXI register case.  If an ISR W1C and the
+      // first RX byte coincide, preserve the clear while retaining the new
+      // RC event; otherwise the blocked poll could miss that byte forever.
+      if (rx_event && !fifo_reset_request) begin
+        if (isr_clear_request)
+          isr_r <= (isr_r & ~wdata_r) | INT_RC;
+        else
+          isr_r <= isr_r | INT_RC;
+      end
     end
   end
 endmodule

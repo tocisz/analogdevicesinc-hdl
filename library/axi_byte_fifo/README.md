@@ -11,7 +11,8 @@ and `doc/Z80_FIFO_WEDGE_INVESTIGATION.md §5b`.
 * `DEPTH=1024` bytes each direction, 80 MHz single clock.
 
 Do **not** use for multi-word packets, `TDEST/TID/TUSER/TKEEP`, or PG080
-thresholds/IRQs/ECC.
+thresholds/ECC.  The implementation has a minimal RX-data (`RC`) IRQ for
+waking the byte-stream driver; it is not a full PG080 interrupt implementation.
 
 ## Interface
 
@@ -21,7 +22,7 @@ but `TDATA` is **8-bit** per direction and `TLAST` is deleted:
 * `s_axi_aclk`, `s_axi_aresetn`, `s_axi_awaddr/awvalid/awready/wdata/wstrb/wvalid/wready/bresp/bvalid/bready/araddr/arvalid/arready/rdata/rresp/rvalid/rready`
 * `axi_str_txd_tvalid/tready/tdata[7:0]` (M_AXIS, PS→PL)
 * `axi_str_rxd_tvalid/tready/tdata[7:0]` (S_AXIS, PL→PS)
-* `mm2s/s2mm_prmry_reset_out_n`, `interrupt` (=0)
+* `mm2s/s2mm_prmry_reset_out_n`, `interrupt` (latched RX-data IRQ; ISR/IER controlled)
 
 Base address stays `0x7C450000`; instance will become `axi_byte_fifo_0`,
 DT `compatible="xlnx,axi-byte-fifo-1.0"`, device `/dev/axi_byte_fifo_0x7c450000`.
@@ -30,8 +31,8 @@ DT `compatible="xlnx,axi-byte-fifo-1.0"`, device `/dev/axi_byte_fifo_0x7c450000`
 
 | Off | Name | Access | Notes |
 |-----|------|--------|-------|
-| 0x00 | ISR  | RO/W1C | Idle `0x01D00000`, after `SRR` `0x01D80000` (`TRC|RRC`). No real IRQ; `W1C` clears. |
-| 0x04 | IER  | RW     | Stored, not decoded (`interrupt` stays 0). |
+| 0x00 | ISR  | RO/W1C | Idle `0x01D00000`, after `SRR` `0x01D80000` (`TRC|RRC`). `RC` is W1C. |
+| 0x04 | IER  | RW     | Enables the latched RX-data interrupt (`RC`, bit 26). |
 | 0x08 | TDFR | WO     | `0xA5` resets TX path. |
 | 0x0C | TDFV | RO     | `1024 - tx_cnt` bytes free (correct `0x400` after reset). |
 | 0x10 | TDFD | WO     | Push **one byte** `wdata[7:0]` → TX FIFO (no `TLR` commit). |
@@ -54,7 +55,7 @@ All other PG080 offsets return `0`.
 | `TDEST/TID/TUSER/TKEEP/TSR/TLAST/TLR/RLR` | yes | **no** | One byte = one beat. |
 | Multi-word packets | yes | **no** | — |
 | Prog thresholds `TFPF/TFPE/RFPF/RFPE` | cfg | **no** | — |
-| Interrupts `RC/TC/...` | IRQ | **none** (`interrupt=0`) | Driver polls; `term` drains via `read_available`. |
+| Interrupts `RC/TC/...` | IRQ | **RX `RC` only** | A newly queued RX byte latches `RC` until ISR W1C; driver `poll()` wakes without a timeout. |
 | ECC / CDC | optional | **no** | Single `s_axi_aclk` 80 MHz. |
 | `TDFV` reset | `0x3FC` (bug) | **`0x400`** | Correct. |
 
