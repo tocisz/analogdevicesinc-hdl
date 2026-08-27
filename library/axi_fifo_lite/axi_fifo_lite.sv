@@ -46,12 +46,10 @@ module axi_fifo_lite (
   assign s2mm_prmry_reset_out_n = s_axi_aresetn;
 
   logic [31:0] rx_mem[DEPTH];
-  logic [31:0] rx_len_mem[DEPTH];
   logic [31:0] tx_mem[DEPTH];
 
   int rx_wptr, rx_rptr, rx_cnt;
-  int rx_len_wptr, rx_len_rptr, rx_len_cnt;
-  int tx_wptr, tx_rptr, tx_cnt, tx_len_cnt;
+  int tx_wptr, tx_rptr, tx_cnt;
   int tx_pending_cnt;
   logic [31:0] ier_r;
   logic [31:0] isr_r;
@@ -88,8 +86,7 @@ module axi_fifo_lite (
   always_ff @(posedge s_axi_aclk) begin
     if (!s_axi_aresetn) begin
       rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
-      rx_len_wptr<=0; rx_len_rptr<=0; rx_len_cnt<=0;
-      tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_len_cnt<=0;
+      tx_wptr<=0; tx_rptr<=0; tx_cnt<=0;
       tx_pending_cnt<=0;
       ier_r<=32'd0;
       isr_r<=32'h01D00000;
@@ -113,20 +110,15 @@ module axi_fifo_lite (
         if (is_rdfd) begin
           if (do_ingest && do_pop) begin
             rx_mem[rx_wptr] <= axi_str_rxd_tdata;
-            rx_len_mem[rx_len_wptr] <= 32'd4;
             rdata_r <= rx_mem[rx_rptr];
             rx_wptr <= (rx_wptr+1)%DEPTH;
-            rx_len_wptr <= (rx_len_wptr+1)%DEPTH;
             rx_rptr <= (rx_rptr+1)%DEPTH;
-            rx_len_rptr <= (rx_len_rptr+1)%DEPTH;
             // net 0
             rvalid_r <= 1'b1;
           end else if (do_pop) begin
             rdata_r <= rx_mem[rx_rptr];
             rx_rptr <= (rx_rptr+1)%DEPTH;
             rx_cnt <= rx_cnt-1;
-            rx_len_rptr <= (rx_len_rptr+1)%DEPTH;
-            rx_len_cnt <= rx_len_cnt-1;
             rvalid_r <= 1'b1;
           end else begin
             rdata_r <= 32'd0;
@@ -134,11 +126,8 @@ module axi_fifo_lite (
           end
         end else if (do_ingest) begin
           rx_mem[rx_wptr] <= axi_str_rxd_tdata;
-          rx_len_mem[rx_len_wptr] <= 32'd4;
           rx_wptr <= (rx_wptr+1)%DEPTH;
-          rx_len_wptr <= (rx_len_wptr+1)%DEPTH;
           rx_cnt <= rx_cnt+1;
-          rx_len_cnt <= rx_len_cnt+1;
         end
       end
 
@@ -148,7 +137,6 @@ module axi_fifo_lite (
         txd_valid_q <= 1'b1;
         tx_rptr <= (tx_rptr+1)%DEPTH;
         tx_cnt <= tx_cnt-1;
-        if (tx_len_cnt>0) tx_len_cnt <= tx_len_cnt-1;
       end
 
       if (aw_done && w_done && !bvalid_r) begin
@@ -157,14 +145,14 @@ module axi_fifo_lite (
           A_ISR:  isr_r <= isr_r & ~wdata_r;
           A_TDFR, A_RDFR, A_SRR: if (wdata_r[7:0]==8'hA5) begin
             if (awaddr_r==A_SRR) begin
-              rx_wptr<=0; rx_rptr<=0; rx_cnt<=0; rx_len_wptr<=0; rx_len_rptr<=0; rx_len_cnt<=0;
-              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_len_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
+              rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
+              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
               isr_r <= 32'h01D80000;
             end else if (awaddr_r==A_TDFR) begin
-              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_len_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
+              tx_wptr<=0; tx_rptr<=0; tx_cnt<=0; tx_pending_cnt<=0; txd_valid_q<=1'b0;
               isr_r <= isr_r | 32'h01000000;
             end else begin
-              rx_wptr<=0; rx_rptr<=0; rx_cnt<=0; rx_len_wptr<=0; rx_len_rptr<=0; rx_len_cnt<=0;
+              rx_wptr<=0; rx_rptr<=0; rx_cnt<=0;
               isr_r <= isr_r | 32'h00800000;
             end
           end
@@ -175,7 +163,6 @@ module axi_fifo_lite (
           A_TLR: begin
             tx_wptr    <= (tx_wptr + tx_pending_cnt) % DEPTH;
             tx_cnt     <= tx_cnt + tx_pending_cnt;
-            tx_len_cnt <= tx_len_cnt + tx_pending_cnt;
             tx_pending_cnt <= 0;
           end
           default: ;
@@ -195,7 +182,7 @@ module axi_fifo_lite (
             A_IER:  rdata_r <= ier_r;
             A_TDFV: rdata_r <= DEPTH - tx_cnt - tx_pending_cnt;
             A_RDFO: rdata_r <= rx_cnt;
-            A_RLR:  rdata_r <= (rx_len_cnt>0) ? rx_len_mem[rx_len_rptr] : 32'd0;
+            A_RLR:  rdata_r <= (rx_cnt>0) ? 32'd4 : 32'd0; // lite: always 4B/beats, was rx_len_mem[]
             default: rdata_r <= 32'd0;
           endcase
           rvalid_r <= 1'b1;

@@ -37,7 +37,9 @@ module acia68b50 (
   output reg        rx_consume,
   output reg  [7:0] tx_byte,
   output reg        tx_valid,
-  input  wire       tx_ready
+  input  wire       tx_ready,
+  output logic      rts_n,         // 1=Z80 not ready (serBuf ≥48), 0=ready
+  input  wire       cts_n          // 1=PL not ready (RX FIFO full), 0=clear
 );
 
   // Control register
@@ -48,11 +50,16 @@ module acia68b50 (
   reg [1:0] cr_tx_ctrl;
   reg       cr_rx_int_en;
 
+  // RTS derived combinationally from control register (firmware watermark):
+  // cr_tx_ctrl==2'b10 → RTS_HIGH (0xD6, serBuf≥48) → rts_n=1 (stall PS→PL)
+  // cr_tx_ctrl==2'b00 → RTS_LOW  (0x96, serBuf≤5)   → rts_n=0 (flow)
+  assign rts_n = (cr_tx_ctrl == 2'b10);
+
   // Status bits
   reg sr_rdrf;
   reg sr_tdre;
-  reg sr_dcd;
-  reg sr_cts;
+  wire sr_dcd = 1'b0;   // DCD not used (tied low)
+  wire sr_cts = cts_n;  // CTS status reflects PL RX FIFO fullness (via z80_soc)
   reg sr_fe;
   reg sr_ovrn;
   reg sr_pe;
@@ -94,8 +101,7 @@ module acia68b50 (
       cr_rx_int_en   <= 1'b0;
       sr_rdrf        <= 1'b0;
       sr_tdre        <= 1'b1;
-      sr_dcd         <= 1'b0;
-      sr_cts         <= 1'b0;
+      // sr_dcd/sr_cts now wires (cts_n/dcd tied low) — no reg init
       sr_fe          <= 1'b0;
       sr_ovrn        <= 1'b0;
       sr_pe          <= 1'b0;

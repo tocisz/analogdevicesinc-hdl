@@ -98,6 +98,9 @@ module tb_fifo_wedge;
   wire [7:0] bridge_tx_data;
   wire       bridge_tx_valid;
   wire       bridge_tx_ready;    // mirror of rxd_tready
+  wire       acia_rts_n;
+  wire       acia_cts_n;
+  assign acia_cts_n = !bridge_tx_ready; // CTS = RX FIFO fullness (separate buffer)
 
   axis_byte_bridge u_bridge (
       .clk(clk), .reset(rst),
@@ -110,7 +113,8 @@ module tb_fifo_wedge;
       .rx_accept    (acia_rx_consume),  // no raw-I/O path in this TB
       .tx_data      (bridge_tx_data),
       .tx_valid     (bridge_tx_valid),
-      .tx_ready     (bridge_tx_ready)
+      .tx_ready     (bridge_tx_ready),
+      .rx_rts_n     (acia_rts_n)
   );
 
   acia68b50 u_acia (
@@ -121,7 +125,8 @@ module tb_fifo_wedge;
       .rx_byte(wire_rx_data), .rx_valid(wire_rx_valid),
       .rx_consume(acia_rx_consume),
       .tx_byte(bridge_tx_data), .tx_valid(bridge_tx_valid),
-      .tx_ready(bridge_tx_ready)
+      .tx_ready(bridge_tx_ready),
+      .rts_n(acia_rts_n), .cts_n(acia_cts_n)
   );
 
   axi_fifo_mm_s_sim u_fifo (

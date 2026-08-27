@@ -19,6 +19,8 @@ module tb_acia68b50;
   logic [7:0] tx_byte;
   logic       tx_valid;
   logic       tx_ready = 1'b1;
+  logic       rts_n;
+  logic       cts_n = 1'b0;
 
   integer errors = 0;
   integer tx_n = 0;
@@ -30,7 +32,8 @@ module tb_acia68b50;
     .data_in(data_in), .data_out(data_out), .ack(ack),
     .irq(irq),
     .rx_byte(rx_byte), .rx_valid(rx_valid), .rx_consume(rx_consume),
-    .tx_byte(tx_byte), .tx_valid(tx_valid), .tx_ready(tx_ready)
+    .tx_byte(tx_byte), .tx_valid(tx_valid), .tx_ready(tx_ready),
+    .rts_n(rts_n), .cts_n(cts_n)
   );
 
   always #5 clk = ~clk;
@@ -175,6 +178,34 @@ module tb_acia68b50;
       $display("FAIL: data read 0x%02x, expected 0x5A", sr);
       errors = errors + 1;
     end else $display("PASS: data read 0x5A");
+
+    // RTS: CR write 0xD6 (10) → rts_n=1, CR write 0x96 (00) → rts_n=0
+    bus_write(1'b0, 8'hD6);
+    repeat (2) @(posedge clk);
+    if (rts_n !== 1'b1) begin
+      $display("FAIL: RTS not asserted after 0xD6 (rts_n=%b)", rts_n);
+      errors = errors + 1;
+    end else $display("PASS: RTS asserted after 0xD6");
+    bus_write(1'b0, 8'h96);
+    repeat (2) @(posedge clk);
+    if (rts_n !== 1'b0) begin
+      $display("FAIL: RTS not deasserted after 0x96 (rts_n=%b)", rts_n);
+      errors = errors + 1;
+    end else $display("PASS: RTS deasserted after 0x96");
+
+    // CTS: cts_n=1 → status bit 3 (CTS) =1, cts_n=0 → bit 3 =0
+    cts_n = 1'b1;
+    bus_read(1'b0, sr);
+    if (sr[3] !== 1'b1) begin
+      $display("FAIL: CTS status bit not 1 when cts_n=1 (sr=0x%02x)", sr);
+      errors = errors + 1;
+    end else $display("PASS: CTS status reflects cts_n=1");
+    cts_n = 1'b0;
+    bus_read(1'b0, sr);
+    if (sr[3] !== 1'b0) begin
+      $display("FAIL: CTS status bit not 0 when cts_n=0 (sr=0x%02x)", sr);
+      errors = errors + 1;
+    end else $display("PASS: CTS status reflects cts_n=0");
 
     if (errors != 0) begin
       $display("ACIA unit test FAILED (%0d errors)", errors);

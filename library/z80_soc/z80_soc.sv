@@ -32,6 +32,7 @@ module z80_soc (
   output wire [7:0] io_tx_data,
   output wire       io_tx_valid,
   input  wire       io_tx_ready,
+  output wire       rts_n,            // ACIA RTS → bridge rx_rts_n (1=stall PS→PL)
 
   // Debug outputs
   output wire [15:0] debug_pc,
@@ -422,6 +423,13 @@ module z80_soc (
   wire       acia_tx_valid;
   wire       acia_rx_consume;
   wire       acia_irq;
+  wire       acia_rts_n;
+  wire       acia_cts_n;  // CTS = !io_tx_ready (RX FIFO fullness, separate from TX FIFO)
+
+  // CTS derived from RX FIFO vacancy (separate buffer): tx_ready = s_axis_tready = (rx_cnt<DEPTH)
+  // When RX FIFO fills, tx_ready=0 → cts_n=1 → ACIA status CTS=1 (and TX holds).
+  assign acia_cts_n = !io_tx_ready;
+  assign rts_n = acia_rts_n;
 
   acia68b50 acia (
     .clk       (clk_i),
@@ -438,7 +446,9 @@ module z80_soc (
     .rx_consume(acia_rx_consume),
     .tx_byte   (acia_tx_byte),
     .tx_valid  (acia_tx_valid),
-    .tx_ready  (io_tx_ready)
+    .tx_ready  (io_tx_ready),
+    .rts_n     (acia_rts_n),
+    .cts_n     (acia_cts_n)
   );
 
   // ==================================================================

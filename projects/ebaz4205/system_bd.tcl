@@ -325,5 +325,6 @@ ad_connect z80_soc_0/io_rx_ready       axis_byte_bridge_0/rx_accept
 ad_connect z80_soc_0/io_tx_data        axis_byte_bridge_0/tx_data
 ad_connect z80_soc_0/io_tx_valid       axis_byte_bridge_0/tx_valid
 ad_connect axis_byte_bridge_0/tx_ready z80_soc_0/io_tx_ready
+ad_connect z80_soc_0/rts_n axis_byte_bridge_0/rx_rts_n  ;# RTS flow: Z80 serBuf≥48 stalls PS→PL (separate TX FIFO)
 
 

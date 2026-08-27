@@ -62,6 +62,7 @@ module tb_axis_byte_bridge;
   logic [7:0]  tx_data;
   logic        tx_valid;
   logic        tx_ready;
+  logic        rx_rts_n = 1'b0;
 
   axis_byte_bridge dut (
       .clk          (clk),
@@ -79,7 +80,8 @@ module tb_axis_byte_bridge;
       .rx_accept    (rx_accept),
       .tx_data      (tx_data),
       .tx_valid     (tx_valid),
-      .tx_ready     (tx_ready)
+      .tx_ready     (tx_ready),
+      .rx_rts_n     (rx_rts_n)
   );
 
   always #5 clk = ~clk;
@@ -114,9 +116,11 @@ module tb_axis_byte_bridge;
   // bridge drain the 1-deep stage first).
   task static tx_strobe(input logic [7:0] val);
     begin
+      @(negedge clk);
       tx_valid = 1'b1;
       tx_data  = val;
       @(posedge clk);
+      @(negedge clk);
       tx_valid = 1'b0;
     end
   endtask
@@ -235,6 +239,48 @@ module tb_axis_byte_bridge;
       m_axis_send({24'd0, 8'(i + 1)}, 8'(i + 1));
       tx_strobe(8'hA0 + 8'(i));
       s_axis_expect(8'hA0 + 8'(i));
+    end
+
+    // ── Test 4: RTS flow-control stalls PS→PL but not PL→PS (separate FIFOs) ──
+    $display("");
+    $display("──────────────────────────────────────────");
+    $display("TEST 4: RTS stalls PS→PL, PL→PS still flows (separate buffers)");
+    $display("──────────────────────────────────────────");
+    rx_rts_n = 1'b1; // assert RTS (Z80 serBuf full) - should hide data and stall
+    rx_accept = 1'b1;
+    m_axis_tvalid = 1'b1;
+    m_axis_tdata  = 32'h0000_00AA;
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    if (m_axis_tready !== 1'b0) begin
+      $display("  ✗ FAIL: RTS=1 but tready=%b (expected 0)", m_axis_tready);
+      fail_count = fail_count + 1;
+    end else begin pass_count = pass_count + 1; end
+    if (rx_valid !== 1'b0) begin
+      $display("  ✗ FAIL: RTS=1 but rx_valid=%b (expected 0, masked RDRF)", rx_valid);
+      fail_count = fail_count + 1;
+    end else begin pass_count = pass_count + 1; end
+    // PL->PS must still flow while RTS stalls PS->PL (separate RX FIFO)
+    s_axis_tready = 1'b1;
+    tx_strobe(8'hCC);
+    s_axis_expect(8'hCC);
+    // Deassert RTS: stalled word must appear exactly once
+    rx_rts_n = 1'b0;
+    @(posedge clk);
+    @(negedge clk);
+    if (rx_valid !== 1'b1 || rx_data !== 8'hAA) begin
+      $display("  ✗ FAIL: after RTS clear rx_valid=%b rx_data=0x%02h exp AA", rx_valid, rx_data);
+      fail_count = fail_count + 1;
+    end else begin pass_count = pass_count + 1; $display("  PASS: RTS clear exposes stalled word"); end
+    if (m_axis_tready !== 1'b1) begin
+      $display("  ✗ FAIL: after RTS clear tready=%b (expected 1)", m_axis_tready);
+      fail_count = fail_count + 1;
+    end else begin pass_count = pass_count + 1; end
+    @(posedge clk); // handshake completes
+    m_axis_tvalid = 1'b0;
+    @(posedge clk);
+    if (rx_valid !== 1'b0) begin
+      $display("  NOTE: rx_valid after pop=%b (expected 0)", rx_valid);
     end
 
     // ── Summary ──

@@ -77,13 +77,21 @@ module axis_byte_bridge (
   input  wire        rx_accept,    // ← io_rx_ready (drain level)
   input  wire [7:0]  tx_data,      // ← io_tx_data
   input  wire        tx_valid,     // ← io_tx_valid (single-cycle strobe)
-  output wire        tx_ready      // → io_tx_ready
+  output wire        tx_ready,     // → io_tx_ready
+  input  wire        rx_rts_n      // ← ACIA RTS (1=Z80 serBuf full, stall PS→PL)
 );
 
-  // ── PS→PL: pass-through of the low byte; upper 24 bits dropped. ──
+  // ── PS→PL: pass-through of the low byte; upper 24 bits dropped.
+  // RTS flow-control: when Z80 firmware asserts RTS (serBuf ≥48, cr_tx_ctrl=10),
+  // mask RDRF (rx_valid) and stall AXIS handshake. Both gated — gating only
+  // tready would leave rx_valid=1 with the same byte held → spurious RDRF IRQ
+  // and duplicate IN ($81) / rx_consume → overflow. Gating both keeps the
+  // stalled word in the upstream TX FIFO (1024 deep, separate from RX FIFO)
+  // and preserves exact-once delivery after RTS clears. PL→PS (tx_*) uses the
+  // independent RX FIFO, so its backpressure (tx_ready=s_axis_tready) is CTS.
   assign rx_data       = m_axis_tdata[7:0];
-  assign rx_valid      = m_axis_tvalid;
-  assign m_axis_tready = rx_accept;
+  assign rx_valid      = m_axis_tvalid && !rx_rts_n;
+  assign m_axis_tready = rx_accept && !rx_rts_n;
 
   // ── PL→PS: 1-deep staging register. ──
   logic       tx_stage_valid;
